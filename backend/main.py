@@ -110,6 +110,45 @@ def predict_risk(patient_req: schemas.PatientCreate, db: Session = Depends(datab
         "shap_values": shap_dict
     }
 
+@app.get("/patients/{patient_id}", response_model=dict)
+def get_patient_report(patient_id: int, db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_user)):
+    db_patient = db.query(models.PatientRecord).filter(models.PatientRecord.id == patient_id, models.PatientRecord.doctor_id == current_user.id).first()
+    if not db_patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+        
+    clinical_data = json.loads(db_patient.raw_data)
+    df = pd.DataFrame([clinical_data])
+    X_processed = preprocessor.transform(df)
+    
+    prob_Cath = db_patient.overall_risk
+    prob_LAD = db_patient.lad_risk
+    prob_LCX = db_patient.lcx_risk
+    prob_RCA = db_patient.rca_risk
+    
+    shap_values = explainer.shap_values(X_processed)
+    if isinstance(shap_values, list):
+        shap_class1 = shap_values[1][0]
+    else:
+        if len(shap_values.shape) == 3:
+            shap_class1 = shap_values[0, :, 1]
+        else:
+            shap_class1 = shap_values[0]
+            
+    shap_dict = {feat: float(val) for feat, val in zip(feature_names, shap_class1)}
+    
+    return {
+        "patient_name": db_patient.patient_name,
+        "prediction": {
+            "overall_cad_risk": prob_Cath,
+            "stenosis_probabilities": {
+                "LAD": prob_LAD,
+                "LCX": prob_LCX,
+                "RCA": prob_RCA
+            },
+            "shap_values": shap_dict
+        }
+    }
+
 @app.get("/patients", response_model=List[schemas.PatientResponse])
 def get_patients(db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_user)):
     return db.query(models.PatientRecord).filter(models.PatientRecord.doctor_id == current_user.id).all()

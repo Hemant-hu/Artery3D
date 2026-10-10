@@ -17,8 +17,17 @@ function Navbar() {
         <Link to="/contact" style={{ color: location.pathname === '/contact' ? 'var(--accent-green)' : '' }}>Contact Us</Link>
       </div>
       <div className="nav-auth">
-        <Link to="/login" className="btn-outline" style={{marginRight: '10px'}}>Login</Link>
-        <Link to="/register" className="btn-dark">Register</Link>
+        {localStorage.getItem('token') ? (
+          <>
+            <Link to="/dashboard" className="btn-dark" style={{marginRight: '10px'}}>Patient Dashboard</Link>
+            <button onClick={() => { localStorage.removeItem('token'); window.location.href='/'; }} className="btn-outline">Logout</button>
+          </>
+        ) : (
+          <>
+            <Link to="/login" className="btn-outline" style={{marginRight: '10px'}}>Login</Link>
+            <Link to="/register" className="btn-dark">Register</Link>
+          </>
+        )}
       </div>
     </nav>
   );

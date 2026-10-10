@@ -8,6 +8,8 @@ import Doctors from './pages/Doctors';
 import Services from './pages/Services';
 import About from './pages/About';
 import Contact from './pages/Contact';
+import NewPatient from './pages/NewPatient';
+import Report from './pages/Report';
 import './index.css';
 
 function App() {
@@ -23,6 +25,8 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/new-patient" element={<NewPatient />} />
+        <Route path="/report/:id" element={<Report />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
