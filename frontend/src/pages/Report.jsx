@@ -157,10 +157,19 @@ function Report() {
                 <span style={{ width: '12px', height: '12px', background: '#ff0000', borderRadius: '50%' }}></span> High Stenosis Risk (&gt;50%)
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
-                <span style={{ width: '12px', height: '12px', background: '#4a0000', borderRadius: '50%' }}></span> Healthy Vessel
+                <span style={{ width: '12px', height: '12px', background: '#6b0a0a', borderRadius: '50%' }}></span> Healthy Artery
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
-                <span style={{ width: '12px', height: '12px', background: '#a84646', borderRadius: '50%' }}></span> Ventricle Muscle
+                <span style={{ width: '12px', height: '12px', background: '#b55a5a', borderRadius: '50%' }}></span> Heart Muscle
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
+                <span style={{ width: '12px', height: '12px', background: '#4c6ed9', borderRadius: '50%' }}></span> Veins / Pulmonary
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
+                <span style={{ width: '12px', height: '12px', background: '#e8d254', borderRadius: '50%' }}></span> Nervous System
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
+                <span style={{ width: '12px', height: '12px', background: '#e6e6db', borderRadius: '50%' }}></span> Valves / Fibrous
               </div>
               <p style={{ fontSize: '10px', color: '#ccc', marginTop: '10px', maxWidth: '180px' }}>Drag to rotate. Scroll to zoom. Real-time mapping from ML output.</p>
             </div>

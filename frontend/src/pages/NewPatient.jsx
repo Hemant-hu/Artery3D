@@ -109,7 +109,14 @@ function NewPatient() {
               return (
                 <div key={key} className="form-group">
                   <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: '500', color: 'var(--text-muted)' }}>{key}</label>
-                  <input type="text" name={key} value={value} onChange={handleClinicalChange} style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }} />
+                  <input 
+                    type={typeof value === 'number' ? 'number' : 'text'} 
+                    step={typeof value === 'number' ? 'any' : undefined} 
+                    name={key} 
+                    value={value} 
+                    onChange={handleClinicalChange} 
+                    style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }} 
+                  />
                 </div>
               );
             })}

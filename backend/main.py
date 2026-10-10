@@ -24,16 +24,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), 'ml_pipeline'))
+from ml_pipeline.inference import ClinicalPredictor
+
 # Load Models
 try:
-    preprocessor = joblib.load("preprocessor.joblib")
-    model_Cath = joblib.load("model_Cath.joblib")
-    model_LAD = joblib.load("model_LAD.joblib")
-    model_LCX = joblib.load("model_LCX.joblib")
-    model_RCA = joblib.load("model_RCA.joblib")
-    with open("feature_names.json", "r") as f:
-        feature_names = json.load(f)
-    explainer = shap.TreeExplainer(model_Cath)
+    predictor = ClinicalPredictor(models_dir=os.path.join(os.path.dirname(__file__), 'ml_pipeline', 'models'))
 except Exception as e:
     print(f"Error loading models: {e}")
 
@@ -64,24 +62,14 @@ def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
 
 @app.post("/predict", response_model=dict)
 def predict_risk(patient_req: schemas.PatientCreate, db: Session = Depends(database.get_db), current_user: models.User = Depends(auth.get_current_user)):
-    df = pd.DataFrame([patient_req.clinical_data])
-    X_processed = preprocessor.transform(df)
+    # Run Inference
+    inference_result = predictor.predict_patient_risk(patient_req.clinical_data)
     
-    prob_Cath = float(model_Cath.predict_proba(X_processed)[0][1])
-    prob_LAD = float(model_LAD.predict_proba(X_processed)[0][1])
-    prob_LCX = float(model_LCX.predict_proba(X_processed)[0][1])
-    prob_RCA = float(model_RCA.predict_proba(X_processed)[0][1])
-    
-    shap_values = explainer.shap_values(X_processed)
-    if isinstance(shap_values, list):
-        shap_class1 = shap_values[1][0]
-    else:
-        if len(shap_values.shape) == 3:
-            shap_class1 = shap_values[0, :, 1]
-        else:
-            shap_class1 = shap_values[0]
-            
-    shap_dict = {feat: float(val) for feat, val in zip(feature_names, shap_class1)}
+    prob_Cath = inference_result["probabilities"]["Overall_CAD"]
+    prob_LAD = inference_result["probabilities"]["LAD"]
+    prob_LCX = inference_result["probabilities"]["LCX"]
+    prob_RCA = inference_result["probabilities"]["RCA"]
+    shap_dict = inference_result["shap_values"]
     
     # Save to database
     db_patient = models.PatientRecord(
@@ -117,35 +105,18 @@ def get_patient_report(patient_id: int, db: Session = Depends(database.get_db), 
         raise HTTPException(status_code=404, detail="Patient not found")
         
     clinical_data = json.loads(db_patient.raw_data)
-    df = pd.DataFrame([clinical_data])
-    X_processed = preprocessor.transform(df)
-    
-    prob_Cath = db_patient.overall_risk
-    prob_LAD = db_patient.lad_risk
-    prob_LCX = db_patient.lcx_risk
-    prob_RCA = db_patient.rca_risk
-    
-    shap_values = explainer.shap_values(X_processed)
-    if isinstance(shap_values, list):
-        shap_class1 = shap_values[1][0]
-    else:
-        if len(shap_values.shape) == 3:
-            shap_class1 = shap_values[0, :, 1]
-        else:
-            shap_class1 = shap_values[0]
-            
-    shap_dict = {feat: float(val) for feat, val in zip(feature_names, shap_class1)}
+    inference_result = predictor.predict_patient_risk(clinical_data)
     
     return {
         "patient_name": db_patient.patient_name,
         "prediction": {
-            "overall_cad_risk": prob_Cath,
+            "overall_cad_risk": inference_result["probabilities"]["Overall_CAD"],
             "stenosis_probabilities": {
-                "LAD": prob_LAD,
-                "LCX": prob_LCX,
-                "RCA": prob_RCA
+                "LAD": inference_result["probabilities"]["LAD"],
+                "LCX": inference_result["probabilities"]["LCX"],
+                "RCA": inference_result["probabilities"]["RCA"]
             },
-            "shap_values": shap_dict
+            "shap_values": inference_result["shap_values"]
         }
     }
 
