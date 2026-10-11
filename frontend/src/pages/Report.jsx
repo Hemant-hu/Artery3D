@@ -55,13 +55,50 @@ function Report() {
     );
   }
 
+  const SAMPLE_PATIENT = {
+    patient_name: 'John Doe (Clinical Demonstration Case)',
+    prediction: {
+      overall_cad_risk: 0.892,
+      stenosis_probabilities: {
+        LAD: 0.814,
+        LCX: 0.142,
+        RCA: 0.778
+      },
+      shap_values: {
+        'Typical Chest Pain': 0.28,
+        'ST Elevation': 0.22,
+        'Age': 0.19,
+        'Region RWMA': 0.17,
+        'EF-TTE': -0.15,
+        'Current Smoker': 0.14,
+        'FBS': 0.11,
+        'TG': 0.09,
+        'BMI': 0.08,
+        'Dyslipidemia': 0.06
+      }
+    }
+  };
+
   if (error || !data || !data.prediction) {
     return (
       <div className="home-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <Navbar />
-        <div style={{ padding: '60px 5%', textAlign: 'center' }}>
-          <h2>{error || 'No report data available.'}</h2>
-          <Link to="/dashboard" className="btn-dark" style={{ marginTop: '20px', display: 'inline-block' }}>Back to Dashboard</Link>
+        <div style={{ padding: '60px 5%', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
+          <h2 style={{ marginBottom: '16px' }}>{error || 'No report data available.'}</h2>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '30px' }}>
+            To view patient records, please log in with your clinician account, or load the interactive clinical demonstration report below to explore the 3D heart model and coronary vessel tree.
+          </p>
+          <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => { setData(SAMPLE_PATIENT); setError(''); }}
+              className="btn-dark"
+              style={{ background: '#00b4d8', borderColor: '#00b4d8' }}
+            >
+              Explore Demo 3D Heart Report
+            </button>
+            <Link to="/login" className="btn-outline">Go to Login</Link>
+            <Link to="/dashboard" className="btn-outline">Dashboard</Link>
+          </div>
         </div>
       </div>
     );
@@ -147,32 +184,8 @@ function Report() {
           </div>
 
           {/* Right Column: 3D Visualization */}
-          <div style={{ flex: 1.5, background: '#111', borderRadius: '12px', overflow: 'hidden', position: 'relative', minHeight: '600px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
-            
+          <div style={{ flex: 1.5, background: '#0a0f1a', borderRadius: '16px', overflow: 'hidden', position: 'relative', minHeight: '720px', display: 'flex', alignItems: 'stretch', justifyContent: 'stretch', boxShadow: '0 8px 30px rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.06)' }}>
             <HeartModel prediction={prediction} />
-
-            <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(0,0,0,0.6)', padding: '15px', borderRadius: '8px', color: 'white', backdropFilter: 'blur(10px)', pointerEvents: 'none' }}>
-              <strong style={{ display: 'block', marginBottom: '10px' }}>Interactive 3D Anatomical Heart</strong>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
-                <span style={{ width: '12px', height: '12px', background: '#ff0000', borderRadius: '50%' }}></span> High Stenosis Risk (&gt;50%)
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
-                <span style={{ width: '12px', height: '12px', background: '#6b0a0a', borderRadius: '50%' }}></span> Healthy Artery
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
-                <span style={{ width: '12px', height: '12px', background: '#b55a5a', borderRadius: '50%' }}></span> Heart Muscle
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
-                <span style={{ width: '12px', height: '12px', background: '#4c6ed9', borderRadius: '50%' }}></span> Veins / Pulmonary
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
-                <span style={{ width: '12px', height: '12px', background: '#e8d254', borderRadius: '50%' }}></span> Nervous System
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px', fontSize: '12px' }}>
-                <span style={{ width: '12px', height: '12px', background: '#e6e6db', borderRadius: '50%' }}></span> Valves / Fibrous
-              </div>
-              <p style={{ fontSize: '10px', color: '#ccc', marginTop: '10px', maxWidth: '180px' }}>Drag to rotate. Scroll to zoom. Real-time mapping from ML output.</p>
-            </div>
           </div>
 
         </div>
