@@ -1,14 +1,12 @@
 import React, { Suspense, useMemo, useState, useRef, useEffect } from 'react';
 import { Canvas, useLoader, useFrame } from '@react-three/fiber';
-import { OrbitControls, Stage, Html, useProgress } from '@react-three/drei';
+import { OrbitControls, Environment, ContactShadows, Html, useProgress } from '@react-three/drei';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 import * as THREE from 'three';
 import {
   Activity,
   Eye,
   RotateCw,
-  Play,
-  Pause,
   Sliders,
   AlertTriangle,
   CheckCircle,
@@ -16,7 +14,10 @@ import {
   Layers,
   Compass,
   Zap,
-  Tag
+  Tag,
+  Heart,
+  Droplets,
+  Gauge
 } from 'lucide-react';
 import allModels from './heart_models.json';
 import { classifyMesh, PIN_LOCATIONS } from './heartClassification';
@@ -64,6 +65,231 @@ function Loader() {
   );
 }
 
+// Physiological 3D Vascular Flow Pathways in Anatomical OBJ Coordinate Space
+const VESSEL_CURVES = {
+  // Left Anterior Descending Artery: LMCA origin down anterior interventricular groove to apex
+  LAD: new THREE.CatmullRomCurve3([
+    new THREE.Vector3(33.8, -122.7, 1250.9), // LMCA Bifurcation
+    new THREE.Vector3(34.0, -135.0, 1238.0), // Proximal LAD
+    new THREE.Vector3(34.2, -147.6, 1226.1), // Mid LAD / Septal branches
+    new THREE.Vector3(38.0, -158.0, 1214.0), // Distal LAD
+    new THREE.Vector3(44.0, -166.0, 1205.0)  // Cardiac Apex
+  ]),
+  // Left Circumflex Artery: LMCA origin along left atrioventricular sulcus to posterior LV
+  LCX: new THREE.CatmullRomCurve3([
+    new THREE.Vector3(33.8, -122.7, 1250.9), // LMCA Bifurcation
+    new THREE.Vector3(41.0, -119.0, 1234.0), // LCX Trunk
+    new THREE.Vector3(45.8, -114.9, 1216.5), // Left AV Sulcus / Marginal branch
+    new THREE.Vector3(56.0, -106.0, 1200.0), // Posterior LV Branch
+    new THREE.Vector3(68.0, -94.0, 1184.0)   // Posterolateral Branch
+  ]),
+  // Right Coronary Artery: Aortic root origin along right coronary sulcus to crux
+  RCA: new THREE.CatmullRomCurve3([
+    new THREE.Vector3(14.5, -121.7, 1251.7), // Right Coronary Ostium / Aorta
+    new THREE.Vector3(9.5, -134.0, 1238.0),  // Proximal RCA
+    new THREE.Vector3(5.3, -147.0, 1220.1),  // Mid RCA / Acute Marginal branch
+    new THREE.Vector3(-6.0, -159.0, 1204.0), // Distal RCA
+    new THREE.Vector3(-20.0, -172.0, 1188.0) // Crux / Posterior Descending
+  ]),
+  // Venous Circulation: Apex drainage UP anterior groove via Great Cardiac Vein to Coronary Sinus
+  VEIN: new THREE.CatmullRomCurve3([
+    new THREE.Vector3(42.0, -166.0, 1206.0), // Apex venous origin
+    new THREE.Vector3(35.0, -148.0, 1218.0), // Anterior interventricular vein (parallel to LAD)
+    new THREE.Vector3(30.7, -128.4, 1214.2), // Great Cardiac Vein
+    new THREE.Vector3(38.0, -112.0, 1198.0), // Circumflex sulcus
+    new THREE.Vector3(24.0, -105.0, 1182.0)  // Coronary Sinus entering Right Atrium
+  ])
+};
+
+// Single Vascular Flow Stream using GPU InstancedMesh for 60 FPS performance
+function VascularFlowStream({
+  curve,
+  count = 16,
+  color = '#ff1744',
+  emissive = '#ff0033',
+  bpm = 75,
+  speed = 0.38,
+  isStenosed = false,
+  isVein = false
+}) {
+  const meshRef = useRef();
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const zAxis = useMemo(() => new THREE.Vector3(0, 0, 1), []);
+
+  const geometry = useMemo(() => new THREE.SphereGeometry(1.35, 12, 12), []);
+  const material = useMemo(() => new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(color),
+    emissive: new THREE.Color(emissive),
+    emissiveIntensity: isStenosed ? 2.2 : isVein ? 1.6 : 1.3,
+    roughness: 0.15,
+    metalness: 0.2,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
+    transparent: true,
+    opacity: 0.95
+  }), [color, emissive, isStenosed, isVein]);
+
+  useFrame(({ clock }) => {
+    if (!meshRef.current) return;
+    const t = clock.getElapsedTime() * (bpm / 75.0);
+    const cycleFreq = bpm / 60.0;
+    const tau = (t * cycleFreq) % 1.0;
+
+    // Physiological systolic ejection wave
+    const systolicSurge = (tau >= 0.06 && tau <= 0.32)
+      ? Math.sin(((tau - 0.06) / 0.26) * Math.PI) ** 2
+      : 0;
+
+    for (let i = 0; i < count; i++) {
+      const offset = i / count;
+      const progress = (t * speed + offset) % 1.0;
+      const point = curve.getPoint(progress);
+      const tangent = curve.getTangent(progress);
+
+      dummy.position.copy(point);
+
+      // Envelope: tapers smoothly at vessel origins and endpoints
+      const envelope = Math.sin(progress * Math.PI);
+      let scale = envelope * (1.1 + 0.45 * systolicSurge);
+
+      // Hemodynamic Bernoulli effect: particle narrows & accelerates through stenotic lesion
+      if (isStenosed && progress > 0.42 && progress < 0.68) {
+        scale *= 0.62;
+      }
+
+      dummy.scale.set(scale, scale, scale * 1.65); // Elongated along flow direction
+      dummy.quaternion.setFromUnitVectors(zAxis, tangent);
+      dummy.updateMatrix();
+
+      meshRef.current.setMatrixAt(i, dummy.matrix);
+    }
+    meshRef.current.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh ref={meshRef} args={[geometry, material, count]} />
+  );
+}
+
+// Complete Hemodynamic Flow Streams for LAD, LCX, RCA, and Venous Return
+function HemodynamicFlowStreams({
+  bpm = 75,
+  ladRisk = 0,
+  lcxRisk = 0,
+  rcaRisk = 0,
+  overallRisk = 0
+}) {
+  return (
+    <group>
+      {/* 1. LAD: Oxygenated scarlet flow down anterior sulcus */}
+      <VascularFlowStream
+        curve={VESSEL_CURVES.LAD}
+        count={16}
+        color="#ff1744"
+        emissive="#ff0033"
+        bpm={bpm}
+        speed={0.42}
+        isStenosed={ladRisk > 0.5}
+      />
+
+      {/* 2. LCX: Oxygenated arterial flow around left coronary sulcus */}
+      <VascularFlowStream
+        curve={VESSEL_CURVES.LCX}
+        count={14}
+        color="#ff2a55"
+        emissive="#ff0044"
+        bpm={bpm}
+        speed={0.38}
+        isStenosed={lcxRisk > 0.5}
+      />
+
+      {/* 3. RCA: Oxygenated arterial flow down right coronary sulcus */}
+      <VascularFlowStream
+        curve={VESSEL_CURVES.RCA}
+        count={16}
+        color="#ff1e38"
+        emissive="#ff0022"
+        bpm={bpm}
+        speed={0.40}
+        isStenosed={rcaRisk > 0.5}
+      />
+
+      {/* 4. Venous Return: Bioluminescent cyan-azure flow up Great Cardiac Vein to Coronary Sinus */}
+      <VascularFlowStream
+        curve={VESSEL_CURVES.VEIN}
+        count={18}
+        color="#00e5ff"
+        emissive="#00b4d8"
+        bpm={bpm}
+        speed={0.34}
+        isVein={true}
+      />
+    </group>
+  );
+}
+
+// Biomechanical Cardiac Pumping Movement (Wiggers Helical Contraction & Torsion Cycle)
+function PumpingHeartGroup({
+  isBeating = true,
+  bpm = 75,
+  pumpingIntensity = 1.0,
+  children
+}) {
+  const groupRef = useRef();
+
+  useFrame(({ clock }) => {
+    if (!groupRef.current) return;
+
+    if (!isBeating) {
+      // Smoothly return to relaxed anatomical baseline when paused
+      groupRef.current.scale.lerp(new THREE.Vector3(1, 1, 1), 0.08);
+      groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, 0, 0.08);
+      groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, 0, 0.08);
+      groupRef.current.position.set(0, 0, 0);
+      return;
+    }
+
+    const t = clock.getElapsedTime();
+    const cycleFreq = bpm / 60.0;
+    const tau = (t * cycleFreq) % 1.0;
+
+    // Physiological Cardiac Waveform:
+    // 1. Ventricular Systole (Rapid Ejection - Lub): Phase 0.06 to 0.32
+    let systole = 0;
+    if (tau >= 0.06 && tau <= 0.32) {
+      const p = (tau - 0.06) / 0.26;
+      systole = Math.sin(p * Math.PI) ** 2.2;
+    }
+
+    // 2. Diastolic Rebound & Atrial Kick (Dub): Phase 0.52 to 0.74
+    let diastoleKick = 0;
+    if (tau >= 0.52 && tau <= 0.74) {
+      const p = (tau - 0.52) / 0.22;
+      diastoleKick = Math.sin(p * Math.PI) ** 2.0 * 0.34;
+    }
+
+    const totalContraction = (systole + diastoleKick) * pumpingIntensity;
+
+    // Helical Ventricular Deformation:
+    // Free walls squeeze inward in X/Z, AV plane descends in Y towards apex
+    const scaleX = 1.0 - (0.046 * totalContraction);
+    const scaleY = 1.0 - (0.062 * totalContraction);
+    const scaleZ = 1.0 - (0.044 * totalContraction);
+    groupRef.current.scale.set(scaleX, scaleY, scaleZ);
+
+    // Left Ventricular Helical Torsion (Twisting of apex relative to base):
+    const torsionY = 0.045 * systole * pumpingIntensity - 0.012 * diastoleKick * pumpingIntensity;
+    const torsionZ = 0.020 * systole * pumpingIntensity;
+    groupRef.current.rotation.y = torsionY;
+    groupRef.current.rotation.z = torsionZ;
+
+    // Heart position is strictly fixed at the origin (center)
+    groupRef.current.position.set(0, 0, 0);
+  });
+
+  return <group ref={groupRef}>{children}</group>;
+}
+
 // Single Mesh Component with Dynamic Shader updates & Pulsing Emissive Glow
 function HeartMesh({
   url,
@@ -75,12 +301,13 @@ function HeartMesh({
   isPulsing = false,
   isVisible = true,
   isHighlighted = false,
+  bpm = 75,
+  isBeating = true,
   onHover,
   onClick
 }) {
   const obj = useLoader(OBJLoader, url);
   const meshRef = useRef();
-  const materialRef = useRef();
 
   // Clone geometry once and store
   const geometryGroup = useMemo(() => {
@@ -130,16 +357,41 @@ function HeartMesh({
     });
   }, [material, color, opacity, emissive, emissiveIntensity, isVisible, isHighlighted, geometryGroup]);
 
-  // Pulsing animation for stenosed vessels & highlighted selections
+  // Synchronize vessel emissive light with the cardiac cycle & blood flow surge
   useFrame(({ clock }) => {
-    if ((isPulsing || isHighlighted) && material && isVisible) {
+    if (!material || !isVisible) return;
+
+    if (isBeating) {
       const t = clock.getElapsedTime();
-      // Cardiac heartbeat rhythm simulation (sinusoidal pulse)
-      const pulseRate = 4.0;
-      const base = emissiveIntensity || 0.6;
-      const pulse = Math.sin(t * pulseRate);
-      const intensity = base + (pulse * 0.45);
-      material.emissiveIntensity = Math.max(0.1, intensity);
+      const cycleFreq = bpm / 60.0;
+      const tau = (t * cycleFreq) % 1.0;
+
+      // Systolic arterial surge burst
+      let systolicSurge = 0;
+      if (tau >= 0.06 && tau <= 0.32) {
+        const p = (tau - 0.06) / 0.26;
+        systolicSurge = Math.sin(p * Math.PI) ** 2;
+      }
+
+      // Diastolic venous drainage surge
+      let diastolicSurge = 0;
+      if (tau >= 0.36 && tau <= 0.68) {
+        const p = (tau - 0.36) / 0.32;
+        diastolicSurge = Math.sin(p * Math.PI) ** 2;
+      }
+
+      if (meta.isArtery) {
+        const base = emissiveIntensity || 0.2;
+        const alertBoost = isPulsing ? 1.0 : 0.45;
+        material.emissiveIntensity = base + (systolicSurge * alertBoost) + (isHighlighted ? 0.6 : 0);
+      } else if (meta.isVein) {
+        const base = emissiveIntensity || 0.3;
+        material.emissiveIntensity = base + (diastolicSurge * 0.55) + (isHighlighted ? 0.6 : 0);
+      } else if (isHighlighted) {
+        material.emissiveIntensity = Math.max(emissiveIntensity, 0.9);
+      }
+    } else if (isHighlighted) {
+      material.emissiveIntensity = Math.max(emissiveIntensity, 0.9);
     }
   });
 
@@ -151,7 +403,7 @@ function HeartMesh({
         e.stopPropagation();
         onHover && onHover(meta);
       }}
-      onPointerOut={(e) => {
+      onPointerOut={() => {
         onHover && onHover(null);
       }}
       onClick={(e) => {
@@ -237,8 +489,7 @@ function CameraDirector({ controlsRef, viewAngle }) {
   useEffect(() => {
     if (!controlsRef.current) return;
     const controls = controlsRef.current;
-    
-    // Smoothly reposition camera and target based on clinical view selected
+
     switch (viewAngle) {
       case 'anterior': // Optimal for LAD & Great Cardiac Vein
         controls.object.position.set(0, -10, 200);
@@ -282,16 +533,18 @@ export default function HeartModel({ prediction }) {
   const overallRisk = prediction?.overall_cad_risk ?? 0;
 
   // View States
-  // 'ghost' (translucent 0.22 opacity) allows vessels to shine while keeping full heart silhouette
-  // 'angiogram' isolates coronary vessels & veins only (muscle = 0 opacity)
-  // 'solid' gives opaque anatomical muscle
   const [viewMode, setViewMode] = useState('ghost');
   const [muscleOpacity, setMuscleOpacity] = useState(0.22);
-  const [selectedVessel, setSelectedVessel] = useState('ALL'); // 'ALL' | 'LAD' | 'LCX' | 'RCA' | 'LMCA' | 'VEIN'
+  const [selectedVessel, setSelectedVessel] = useState('ALL');
   const [hoveredMeta, setHoveredMeta] = useState(null);
   const [showPins, setShowPins] = useState(true);
-  const [autoRotate, setAutoRotate] = useState(true);
   const [viewAngle, setViewAngle] = useState('default');
+
+  // Pumping & Hemodynamics States
+  const [isBeating, setIsBeating] = useState(true);
+  const [isFlowing, setIsFlowing] = useState(true);
+  const [bpm, setBpm] = useState(75);
+  const [pumpingIntensity, setPumpingIntensity] = useState(1.0);
 
   const controlsRef = useRef();
 
@@ -305,24 +558,20 @@ export default function HeartModel({ prediction }) {
 
   // Color Definitions
   const colors = useMemo(() => ({
-    // Coronary Arteries
-    arteryHealthy: '#8b1515',       // Deep arterial crimson
-    arteryStenosis: '#ff1744',      // Neon warning crimson
+    arteryHealthy: '#8b1515',
+    arteryStenosis: '#ff1744',
     arterySelected: '#ff5252',
-    // Cath / LMCA
-    lmcaStem: overallRisk > 0.5 ? '#ff6d00' : '#8b1515', // Vibrant amber/crimson for Cath access
-    // Venous Circulation
-    veinCoronary: '#00b4d8',        // Bioluminescent cyan-blue
-    coronarySinus: '#0077b6',       // Deep sapphire blue
-    pulmonary: '#3a506b',           // Slate navy
-    // Structural Anatomy
-    aorta: '#c62828',               // Arterial scarlet
-    valve: '#f1eee7',               // Fibrous ivory
-    conduction: '#ffc107',          // Bioelectric gold
-    myocardium: '#6e1a24'           // Translucent cardiac wine red
+    lmcaStem: overallRisk > 0.5 ? '#ff6d00' : '#8b1515',
+    veinCoronary: '#00b4d8',
+    coronarySinus: '#0077b6',
+    pulmonary: '#3a506b',
+    aorta: '#c62828',
+    valve: '#f1eee7',
+    conduction: '#ffc107',
+    myocardium: '#6e1a24'
   }), [overallRisk]);
 
-  // Process all 119 meshes with classification & conditional styling
+  // Process all 119 meshes with classification & metadata
   const classifiedMeshes = useMemo(() => {
     return allModels.map((filename) => {
       const meta = classifyMesh(filename);
@@ -391,7 +640,6 @@ export default function HeartModel({ prediction }) {
         emissiveIntensity = isHigh ? 1.0 : 0.25;
         isPulsing = isHigh;
       } else if (isLMCA) {
-        // Left Main Coronary Artery stem (Cath port)
         const isHigh = overallRisk > 0.5;
         color = isHigh ? '#ff7b00' : colors.arteryHealthy;
         emissive = isHigh ? '#ff5500' : '#4a0000';
@@ -441,10 +689,11 @@ export default function HeartModel({ prediction }) {
           isPulsing={isPulsing}
           isVisible={isVisible}
           isHighlighted={isHighlighted}
+          bpm={bpm}
+          isBeating={isBeating}
           onHover={setHoveredMeta}
           onClick={(m) => {
             setSelectedVessel(m.category);
-            // Switch camera perspective automatically to reveal the clicked vessel
             if (m.category === 'LAD') setViewAngle('anterior');
             else if (m.category === 'LCX') setViewAngle('left');
             else if (m.category === 'RCA') setViewAngle('right');
@@ -454,9 +703,9 @@ export default function HeartModel({ prediction }) {
         />
       );
     });
-  }, [classifiedMeshes, selectedVessel, muscleOpacity, ladRisk, lcxRisk, rcaRisk, overallRisk, colors, hoveredMeta, basePath]);
+  }, [classifiedMeshes, selectedVessel, muscleOpacity, ladRisk, lcxRisk, rcaRisk, overallRisk, colors, hoveredMeta, bpm, isBeating, basePath]);
 
-  // Active diagnostic inspection data (either hovered vessel or selected vessel or overall)
+  // Active diagnostic inspection data (hovered or selected vessel or overall summary)
   const activeInspection = useMemo(() => {
     if (hoveredMeta) return hoveredMeta;
     if (selectedVessel === 'LAD') {
@@ -516,7 +765,7 @@ export default function HeartModel({ prediction }) {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '600px', background: 'radial-gradient(circle at 50% 40%, #111827 0%, #080c14 100%)', overflow: 'hidden' }}>
-      
+
       {/* 3D WebGL Canvas */}
       <Canvas
         style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
@@ -532,43 +781,76 @@ export default function HeartModel({ prediction }) {
           <directionalLight position={[40, -40, -40]} intensity={1.0} color="#ff3366" />
           <pointLight position={[0, 40, 30]} intensity={0.8} />
 
-          <Stage environment="city" intensity={0.3} adjustCamera={1.25}>
-            {renderedMeshes}
+          {/* Studio HDRI Reflections & Soft Floor Shadow */}
+          <Environment preset="city" />
+          <ContactShadows
+            position={[0, -58, 0]}
+            opacity={0.65}
+            scale={160}
+            blur={2.4}
+            far={75}
+          />
 
-            {/* 3D Interactive Vessel Pins */}
-            {showPins && PIN_LOCATIONS.map((pin) => {
-              let risk = null;
-              if (pin.vesselKey === 'LAD') risk = ladRisk;
-              else if (pin.vesselKey === 'LCX') risk = lcxRisk;
-              else if (pin.vesselKey === 'RCA') risk = rcaRisk;
-              else if (pin.vesselKey === 'Overall_CAD') risk = overallRisk;
+          {/* Realistic Biomechanical Pumping Heart Movement */}
+          <PumpingHeartGroup
+            isBeating={isBeating}
+            bpm={bpm}
+            pumpingIntensity={pumpingIntensity}
+          >
+            {/* Precise Geometric Centering: Offsets all 119 meshes directly to origin (0, 0, 0) */}
+            <group position={[-22.888, 123.916, -1233.615]}>
+              {renderedMeshes}
 
-              return (
-                <VesselPinMarker
-                  key={pin.id}
-                  pin={pin}
-                  risk={risk}
-                  isActive={selectedVessel === pin.id}
-                  onClick={() => {
-                    setSelectedVessel(pin.id);
-                    if (pin.id === 'LAD') setViewAngle('anterior');
-                    else if (pin.id === 'LCX') setViewAngle('left');
-                    else if (pin.id === 'RCA') setViewAngle('right');
-                    else if (pin.id === 'LMCA') setViewAngle('superior');
-                    else if (pin.id === 'VEIN') setViewAngle('posterior');
-                  }}
+              {/* Hemodynamic Blood Pumping through Veins & Arteries */}
+              {isFlowing && (
+                <HemodynamicFlowStreams
+                  bpm={bpm}
+                  ladRisk={ladRisk}
+                  lcxRisk={lcxRisk}
+                  rcaRisk={rcaRisk}
+                  overallRisk={overallRisk}
                 />
-              );
-            })}
-          </Stage>
+              )}
+
+              {/* 3D Interactive Vessel Pins anchored directly to cardiac surface */}
+              {showPins && PIN_LOCATIONS.map((pin) => {
+                let risk = null;
+                if (pin.vesselKey === 'LAD') risk = ladRisk;
+                else if (pin.vesselKey === 'LCX') risk = lcxRisk;
+                else if (pin.vesselKey === 'RCA') risk = rcaRisk;
+                else if (pin.vesselKey === 'Overall_CAD') risk = overallRisk;
+
+                return (
+                  <VesselPinMarker
+                    key={pin.id}
+                    pin={pin}
+                    risk={risk}
+                    isActive={selectedVessel === pin.id}
+                    onClick={() => {
+                      setSelectedVessel(pin.id);
+                      if (pin.id === 'LAD') setViewAngle('anterior');
+                      else if (pin.id === 'LCX') setViewAngle('left');
+                      else if (pin.id === 'RCA') setViewAngle('right');
+                      else if (pin.id === 'LMCA') setViewAngle('superior');
+                      else if (pin.id === 'VEIN') setViewAngle('posterior');
+                    }}
+                  />
+                );
+              })}
+            </group>
+          </PumpingHeartGroup>
 
           <CameraDirector controlsRef={controlsRef} viewAngle={viewAngle} />
 
+          {/* 360-Degree Orbital Controls locked strictly to heart center */}
           <OrbitControls
             ref={controlsRef}
             makeDefault
-            autoRotate={autoRotate}
-            autoRotateSpeed={1.2}
+            target={[0, 0, 0]}
+            enablePan={false}
+            enableRotate={true}
+            enableZoom={true}
+            autoRotate={false}
             minDistance={40}
             maxDistance={420}
             enableDamping
@@ -577,7 +859,7 @@ export default function HeartModel({ prediction }) {
         </Suspense>
       </Canvas>
 
-      {/* UNIFIED TOP HUD: Header, View Modes, and Vessel Filters (Organized cleanly with Row 1 above and Row 2 below) */}
+      {/* UNIFIED TOP HUD: Header, View Modes, Vessel Filters, and Hemodynamic Pumping Controls */}
       <div style={{
         position: 'absolute',
         top: '16px',
@@ -585,11 +867,11 @@ export default function HeartModel({ prediction }) {
         right: '16px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '12px',
+        gap: '10px',
         pointerEvents: 'none',
         zIndex: 10
       }}>
-        {/* ROW 1 (UP): Header Badge & View Mode Mode Switchers */}
+        {/* ROW 1 (UP): Header Badge & View Mode Switchers */}
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
@@ -705,7 +987,7 @@ export default function HeartModel({ prediction }) {
           </div>
         </div>
 
-        {/* ROW 2 (BELOW): Vessel Filter Pills - Statically placed below Row 1 with zero overlap */}
+        {/* ROW 2 (BELOW ROW 1): Target Vessel Filter Pills */}
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
@@ -907,6 +1189,145 @@ export default function HeartModel({ prediction }) {
               <RotateCw size={12} /> Show All Anatomy
             </button>
           )}
+        </div>
+
+        {/* ROW 3 (BELOW ROW 2): Cardiac Hemodynamics & Pumping Controls */}
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '8px',
+          alignItems: 'center',
+          pointerEvents: 'auto'
+        }}>
+          {/* Heartbeat Pumping Toggle */}
+          <button
+            onClick={() => setIsBeating(!isBeating)}
+            style={{
+              background: isBeating ? 'rgba(239, 68, 68, 0.25)' : 'rgba(15, 23, 42, 0.85)',
+              border: `1px solid ${isBeating ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
+              borderRadius: '999px',
+              padding: '4px 12px',
+              color: '#f8fafc',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              backdropFilter: 'blur(10px)',
+              boxShadow: isBeating ? '0 0 10px rgba(239, 68, 68, 0.3)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Heart size={13} color={isBeating ? '#ff1744' : '#94a3b8'} fill={isBeating ? '#ff1744' : 'none'} />
+            {isBeating ? `Heart Movement: Active (${bpm} BPM)` : 'Heart Movement: Paused'}
+          </button>
+
+          {/* Blood Flow Toggle */}
+          <button
+            onClick={() => setIsFlowing(!isFlowing)}
+            style={{
+              background: isFlowing ? 'rgba(0, 180, 216, 0.25)' : 'rgba(15, 23, 42, 0.85)',
+              border: `1px solid ${isFlowing ? '#00b4d8' : 'rgba(255,255,255,0.15)'}`,
+              borderRadius: '999px',
+              padding: '4px 12px',
+              color: '#f8fafc',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              backdropFilter: 'blur(10px)',
+              boxShadow: isFlowing ? '0 0 10px rgba(0, 180, 216, 0.3)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Droplets size={13} color={isFlowing ? '#00e5ff' : '#94a3b8'} />
+            {isFlowing ? 'Vessel Blood Flow: Active' : 'Vessel Blood Flow: Off'}
+          </button>
+
+          {/* BPM Rate Selection Bar */}
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.85)',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: '999px',
+            padding: '2px 4px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '2px'
+          }}>
+            <button
+              onClick={() => setBpm(60)}
+              style={{
+                background: bpm === 60 ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
+                color: bpm === 60 ? '#60a5fa' : '#94a3b8',
+                border: 'none',
+                borderRadius: '999px',
+                padding: '3px 8px',
+                fontSize: '10px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              60 BPM (Rest)
+            </button>
+            <button
+              onClick={() => setBpm(75)}
+              style={{
+                background: bpm === 75 ? 'rgba(16, 185, 129, 0.3)' : 'transparent',
+                color: bpm === 75 ? '#34d399' : '#94a3b8',
+                border: 'none',
+                borderRadius: '999px',
+                padding: '3px 8px',
+                fontSize: '10px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              75 BPM (Normal)
+            </button>
+            <button
+              onClick={() => setBpm(100)}
+              style={{
+                background: bpm === 100 ? 'rgba(239, 68, 68, 0.3)' : 'transparent',
+                color: bpm === 100 ? '#f87171' : '#94a3b8',
+                border: 'none',
+                borderRadius: '999px',
+                padding: '3px 8px',
+                fontSize: '10px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              100 BPM (Stress)
+            </button>
+          </div>
+
+          {/* Pumping Intensity / Force Toggle */}
+          <button
+            onClick={() => setPumpingIntensity(p => p === 1.0 ? 1.4 : p === 1.4 ? 0.6 : 1.0)}
+            style={{
+              background: 'rgba(15, 23, 42, 0.85)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: '999px',
+              padding: '4px 10px',
+              color: '#cbd5e1',
+              fontSize: '10px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Gauge size={12} color="#00b4d8" />
+            Pump Force: {pumpingIntensity === 1.4 ? 'Strong (140%)' : pumpingIntensity === 0.6 ? 'Gentle (60%)' : 'Standard (100%)'}
+          </button>
         </div>
       </div>
 
@@ -1133,28 +1554,38 @@ export default function HeartModel({ prediction }) {
             <Tag size={15} />
           </button>
 
-          {/* Auto Rotate Toggle */}
-          <button
-            title={autoRotate ? 'Pause Rotation' : 'Auto Rotate'}
-            onClick={() => setAutoRotate(!autoRotate)}
+          {/* 360 Degree View Badge */}
+          <div
+            title="360° Free Orbit View - Fixed in Center"
             style={{
-              background: autoRotate ? 'rgba(0, 180, 216, 0.3)' : 'transparent',
-              color: autoRotate ? '#00b4d8' : '#94a3b8',
-              border: 'none',
-              padding: '6px',
-              borderRadius: '6px',
-              cursor: 'pointer',
               display: 'flex',
-              alignItems: 'center'
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 8px',
+              background: 'rgba(0, 180, 216, 0.15)',
+              border: '1px solid rgba(0, 180, 216, 0.3)',
+              borderRadius: '6px',
+              color: '#38bdf8',
+              fontSize: '11px',
+              fontWeight: 600,
+              userSelect: 'none'
             }}
           >
-            {autoRotate ? <Pause size={15} /> : <Play size={15} />}
-          </button>
+            <Compass size={14} color="#00e5ff" />
+            <span>360° View</span>
+          </div>
 
-          {/* Reset Camera */}
+          {/* Reset Camera to Center */}
           <button
-            title="Reset Perspective"
-            onClick={() => setViewAngle('default')}
+            title="Reset to Center View"
+            onClick={() => {
+              setViewAngle('default');
+              if (controlsRef.current) {
+                controlsRef.current.target.set(0, 0, 0);
+                controlsRef.current.object.position.set(50, 20, 180);
+                controlsRef.current.update();
+              }
+            }}
             style={{
               background: 'transparent',
               color: '#94a3b8',
