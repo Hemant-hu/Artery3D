@@ -27,9 +27,16 @@ class ClinicalPredictor:
             self.explainer = shap.TreeExplainer(main_model)
             self.explainer_type = 'tree'
         except Exception:
-            # Fallback for non-tree models like Logistic Regression
-            self.explainer = shap.Explainer(main_model, pd.DataFrame([self.scaler.mean_], columns=self.feature_columns))
-            self.explainer_type = 'other'
+            # For ensembles (VotingClassifier / StackingClassifier), explain using representative tree estimator
+            if hasattr(main_model, 'named_estimators_') and 'et' in main_model.named_estimators_:
+                self.explainer = shap.TreeExplainer(main_model.named_estimators_['et'])
+                self.explainer_type = 'tree'
+            elif hasattr(main_model, 'named_estimators_') and 'cat' in main_model.named_estimators_:
+                self.explainer = shap.TreeExplainer(main_model.named_estimators_['cat'])
+                self.explainer_type = 'tree'
+            else:
+                self.explainer = shap.Explainer(main_model.predict_proba, pd.DataFrame([self.scaler.mean_], columns=self.feature_columns))
+                self.explainer_type = 'other'
             
     def _prepare_inference_data(self, df):
         """Applies exact feature engineering and aligns columns."""
