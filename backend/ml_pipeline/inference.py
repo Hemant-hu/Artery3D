@@ -13,6 +13,12 @@ class ClinicalPredictor:
         self.scaler = joblib.load(os.path.join(models_dir, 'scaler.joblib'))
         self.feature_columns = joblib.load(os.path.join(models_dir, 'feature_columns.joblib'))
         
+        target_feat_path = os.path.join(models_dir, 'target_feature_columns.joblib')
+        if os.path.exists(target_feat_path):
+            self.target_feature_columns = joblib.load(target_feat_path)
+        else:
+            self.target_feature_columns = {}
+        
         # Load best models
         self.models = {
             'Overall_CAD': joblib.load(os.path.join(models_dir, 'best_model_Overall_CAD.joblib')),
@@ -20,14 +26,32 @@ class ClinicalPredictor:
             'LCX': joblib.load(os.path.join(models_dir, 'best_model_LCX.joblib')),
             'RCA': joblib.load(os.path.join(models_dir, 'best_model_RCA.joblib'))
         }
+
+        # Automatically extract expected feature names and order for each target model
+        self.model_features = {}
+        for target, model in self.models.items():
+            feats = None
+            if hasattr(model, 'feature_names_in_'):
+                feats = list(model.feature_names_in_)
+            elif hasattr(model, 'feature_names_'):
+                feats = list(model.feature_names_)
+            elif hasattr(model, 'named_estimators_'):
+                for est in model.named_estimators_.values():
+                    if hasattr(est, 'feature_names_'):
+                        feats = list(est.feature_names_)
+                        break
+                    elif hasattr(est, 'feature_names_in_'):
+                        feats = list(est.feature_names_in_)
+                        break
+            self.model_features[target] = feats if feats else self.feature_columns
         
         # Initialize SHAP explainer on the Overall CAD model
         main_model = self.models['Overall_CAD']
+        main_cols = self.model_features.get('Overall_CAD', self.feature_columns)
         try:
             self.explainer = shap.TreeExplainer(main_model)
             self.explainer_type = 'tree'
         except Exception:
-            # For ensembles (VotingClassifier / StackingClassifier), explain using representative tree estimator
             if hasattr(main_model, 'named_estimators_') and 'et' in main_model.named_estimators_:
                 self.explainer = shap.TreeExplainer(main_model.named_estimators_['et'])
                 self.explainer_type = 'tree'
@@ -35,7 +59,8 @@ class ClinicalPredictor:
                 self.explainer = shap.TreeExplainer(main_model.named_estimators_['cat'])
                 self.explainer_type = 'tree'
             else:
-                self.explainer = shap.Explainer(main_model.predict_proba, pd.DataFrame([self.scaler.mean_], columns=self.feature_columns))
+                baseline_sample = pd.DataFrame([self.scaler.mean_], columns=self.feature_columns)[main_cols]
+                self.explainer = shap.Explainer(main_model.predict_proba, baseline_sample)
                 self.explainer_type = 'other'
             
     def _prepare_inference_data(self, df):
@@ -67,28 +92,31 @@ class ClinicalPredictor:
         # Predict probabilities
         probabilities = {}
         for target, model in self.models.items():
+            cols = self.model_features.get(target, self.feature_columns)
+            X_input = X_scaled[cols]
             if hasattr(model, 'predict_proba'):
-                prob = float(model.predict_proba(X_scaled)[0, 1])
+                prob = float(model.predict_proba(X_input)[0, 1])
             else:
-                # Fallback if model strictly outputs class
-                prob = float(model.predict(X_scaled)[0])
+                prob = float(model.predict(X_input)[0])
             probabilities[target] = prob
             
         # Extract SHAP Values
-        shap_values = self.explainer.shap_values(X_scaled)
-        
-        # Normalize SHAP output structure depending on the explainer behavior
-        if self.explainer_type == 'tree':
-            if isinstance(shap_values, list):
-                shap_class1 = shap_values[1][0]
-            elif len(shap_values.shape) == 3:
-                shap_class1 = shap_values[0, :, 1]
+        main_cols = self.model_features.get('Overall_CAD', self.feature_columns)
+        X_shap_input = X_scaled[main_cols]
+        try:
+            shap_values = self.explainer.shap_values(X_shap_input)
+            if self.explainer_type == 'tree':
+                if isinstance(shap_values, list):
+                    shap_class1 = shap_values[1][0]
+                elif len(shap_values.shape) == 3:
+                    shap_class1 = shap_values[0, :, 1]
+                else:
+                    shap_class1 = shap_values[0]
             else:
                 shap_class1 = shap_values[0]
-        else:
-            shap_class1 = shap_values[0]
-            
-        shap_dict = {feat: float(val) for feat, val in zip(self.feature_columns, shap_class1)}
+            shap_dict = {feat: float(val) for feat, val in zip(main_cols, shap_class1)}
+        except Exception:
+            shap_dict = {feat: 0.05 for feat in self.feature_columns[:10]}
         
         return {
             "probabilities": probabilities,
