@@ -1,10 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import { useNavigate } from 'react-router-dom';
 
 function NewPatient() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const currentDoctor = localStorage.getItem('doctor_name') || 'Doctor';
+  const displayDoctor = currentDoctor.toLowerCase().startsWith('dr') ? currentDoctor : `Dr. ${currentDoctor}`;
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+    }
+  }, [navigate]);
+
   const [formData, setFormData] = useState({
     patient_name: 'John Doe',
     age: 53,
@@ -66,7 +76,15 @@ function NewPatient() {
       const result = await response.json();
       setLoading(false);
       if (response.ok) {
-        navigate(`/report/${result.patient_id}`, { state: { prediction: result, patient_name: formData.patient_name } });
+        navigate(`/report/${result.patient_id}`, { 
+          state: { 
+            prediction: result, 
+            patient_name: formData.patient_name,
+            doctor_name: result.doctor_name || currentDoctor,
+            age: Number(formData.age),
+            sex: formData.sex
+          } 
+        });
       } else {
         alert("Prediction failed: " + JSON.stringify(result));
       }
@@ -82,7 +100,38 @@ function NewPatient() {
       <Navbar />
       <div style={{ padding: '60px 5%', flex: 1 }}>
         <h2 style={{ fontSize: '32px', marginBottom: '10px' }}>Add New Patient</h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '30px' }}>Enter patient clinical details to generate a 3D predictive analysis.</p>
+        <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>
+          Enter patient clinical details to generate a 3D predictive cardiovascular analysis.
+        </p>
+
+        {/* Evaluating Physician Attribution Banner */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'rgba(10, 77, 60, 0.08)',
+          border: '1px solid rgba(10, 77, 60, 0.2)',
+          padding: '16px 24px',
+          borderRadius: '12px',
+          marginBottom: '28px',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '24px' }}>👨‍⚕️</span>
+            <div>
+              <div style={{ fontSize: '15px', fontWeight: '600', color: '#0a4d3c' }}>
+                Evaluating Physician: {displayDoctor}
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                This clinical evaluation will be attributed to your physician profile and shared hospital-wide.
+              </div>
+            </div>
+          </div>
+          <span style={{ fontSize: '12px', background: '#0a4d3c', color: 'white', padding: '4px 12px', borderRadius: '12px', fontWeight: '500' }}>
+            Active Clinician Entry
+          </span>
+        </div>
         
         <form onSubmit={handleSubmit} style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
           <h3 style={{ marginBottom: '20px', fontSize: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>Basic Info</h3>

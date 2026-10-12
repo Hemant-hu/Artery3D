@@ -17,6 +17,7 @@ class PatientRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     doctor_id = Column(Integer, ForeignKey("users.id"))
+    doctor_name = Column(String, nullable=True)
     
     patient_name = Column(String)
     age = Column(Integer)

@@ -16,19 +16,33 @@ class UserResponse(UserBase):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    doctor_name: Optional[str] = None
+    email: Optional[str] = None
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+class LoginRequest(BaseModel):
+    doctor_name: Optional[str] = None
+    email: str
+    password: str
 
 class PatientCreate(BaseModel):
     patient_name: str
     age: int
     sex: str
-    clinical_data: Dict[str, Any] # all the 55 features
+    clinical_data: Dict[str, Any] # all clinical features
+
+class PatientUpdate(BaseModel):
+    patient_name: Optional[str] = None
+    age: Optional[int] = None
+    sex: Optional[str] = None
+    clinical_data: Optional[Dict[str, Any]] = None
 
 class PatientResponse(BaseModel):
     id: int
     patient_name: str
+    doctor_name: Optional[str] = None
     overall_risk: float
     lad_risk: float
     lcx_risk: float
