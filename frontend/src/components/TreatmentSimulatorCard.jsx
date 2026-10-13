@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Stethoscope
 } from 'lucide-react';
+import { API_BASE_URL } from '../config/api';
 
 export default function TreatmentSimulatorCard({
   baseClinicalData = {},
@@ -67,7 +68,7 @@ export default function TreatmentSimulatorCard({
       };
 
       try {
-        const res = await fetch('http://127.0.0.1:8000/simulate-intervention', {
+        const res = await fetch(`${API_BASE_URL}/simulate-intervention`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

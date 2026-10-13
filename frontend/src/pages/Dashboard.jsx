@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import { Link, useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config/api';
 
 function Dashboard() {
   const [patients, setPatients] = useState([]);
@@ -14,7 +15,7 @@ function Dashboard() {
       return;
     }
 
-    fetch('http://127.0.0.1:8000/patients', {
+    fetch(`${API_BASE_URL}/patients`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }

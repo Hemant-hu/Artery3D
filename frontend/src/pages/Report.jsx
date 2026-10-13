@@ -6,6 +6,7 @@ import ClinicalNotesSection from '../components/ClinicalNotesSection';
 import HospitalPdfReportModal from '../components/HospitalPdfReportModal';
 import TreatmentSimulatorCard from '../components/TreatmentSimulatorCard';
 import SurvivalCurveCard from '../components/SurvivalCurveCard';
+import { API_BASE_URL } from '../config/api';
 
 const DEFAULT_CLINICAL = {
   "Age": 53, "Weight": 90, "Length": 175, "Sex": "Male", "BMI": 29.38,
@@ -59,7 +60,7 @@ function Report() {
     // If id is present, fetch authoritative DB record to guarantee 100% CAD risk synchronization with Dashboard
     const fetchReport = async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/patients/${id}`, {
+        const res = await fetch(`${API_BASE_URL}/patients/${id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
@@ -153,7 +154,7 @@ function Report() {
         return;
       }
 
-      const res = await fetch(`http://127.0.0.1:8000/patients/${targetId}`, {
+      const res = await fetch(`${API_BASE_URL}/patients/${targetId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -204,7 +205,7 @@ function Report() {
 
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`http://127.0.0.1:8000/patients/${targetId}/notes`, {
+      const res = await fetch(`${API_BASE_URL}/patients/${targetId}/notes`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
