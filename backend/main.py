@@ -40,11 +40,19 @@ app.add_middleware(
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'ml_pipeline'))
+
+try:
+    from ml_pipeline.survival_model import CardiovascularSurvivalModel
+    setattr(sys.modules['__main__'], 'CardiovascularSurvivalModel', CardiovascularSurvivalModel)
+except Exception:
+    pass
+
 from ml_pipeline.inference import ClinicalPredictor
 
 # Load Models
 try:
     predictor = ClinicalPredictor(models_dir=os.path.join(os.path.dirname(__file__), 'ml_pipeline', 'models'))
+    print("All ML ensemble models and 10-year MACE survival models successfully initialized!")
 except Exception as e:
     print(f"Error loading models: {e}")
 
