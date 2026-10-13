@@ -52,7 +52,7 @@ function Navbar() {
           </>
         ) : (
           <>
-            <Link to="/login" className="btn-outline" style={{ marginRight: '10px' }}>Login</Link>
+            <Link to="/login" className="btn-outline" style={{ marginRight: '10px' }}>Doctor Login</Link>
             <Link to="/register" className="btn-dark">Register</Link>
           </>
         )}

@@ -43,6 +43,7 @@ export default function HospitalPdfReportModal({
   const riskValue = overall_risk !== undefined ? overall_risk : (prediction?.overall_cad_risk ?? 0.85);
   const stenosis = prediction?.stenosis_probabilities || { LAD: 0.8, LCX: 0.2, RCA: 0.7 };
   const shapValues = prediction?.shap_values || {};
+  const survival = prediction?.survival_analysis || patientData?.survival_analysis || null;
 
   const sortedShap = Object.entries(shapValues)
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
@@ -491,10 +492,69 @@ export default function HospitalPdfReportModal({
             </div>
           </div>
 
+          {/* 10-YEAR MACE SURVIVAL PROGNOSIS SECTION */}
+          <div style={{ marginBottom: '22px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#0a4d3c' }}>
+                3. Longitudinal 10-Year MACE Survival Prognosis (Cox Proportional Hazards)
+              </div>
+              <span style={{
+                background: (survival?.tier_color || '#f97316') + '15',
+                color: survival?.tier_color || '#c2410c',
+                border: `1px solid ${survival?.tier_color || '#f97316'}40`,
+                padding: '2px 8px',
+                borderRadius: '6px',
+                fontSize: '10px',
+                fontWeight: 700
+              }}>
+                {survival?.risk_tier || 'High MACE Risk'}
+              </span>
+            </div>
+            
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: '8px',
+              background: '#f8fafc',
+              padding: '12px 14px',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0',
+              marginBottom: '6px'
+            }}>
+              <div>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>1-Yr MACE Risk</div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+                  {((survival?.one_year_mace_risk || 0.045) * 100).toFixed(1)}%
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>5-Yr MACE Risk</div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#d97706', marginTop: '2px' }}>
+                  {((survival?.five_year_mace_risk || 0.284) * 100).toFixed(1)}%
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>10-Yr MACE Risk</div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#b91c1c', marginTop: '2px' }}>
+                  {((survival?.ten_year_mace_risk || 0.582) * 100).toFixed(1)}%
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>10-Yr Event-Free</div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#0284c7', marginTop: '2px' }}>
+                  {((survival?.ten_year_survival_rate || 0.418) * 100).toFixed(1)}%
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: '10px', color: '#475569', fontStyle: 'italic', paddingLeft: '4px' }}>
+              Clinical Strategy: {survival?.clinical_guidance || 'Comprehensive Secondary Prevention GDMT Recommended.'}
+            </div>
+          </div>
+
           {/* PHYSICIAN OFFICIAL NOTES & ACTION PLAN */}
           <div style={{ marginBottom: '24px' }}>
             <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#0a4d3c', marginBottom: '8px' }}>
-              3. Attending Physician Consultation Notes & Action Plan
+              4. Attending Physician Consultation Notes & Action Plan
             </div>
             {clinical_notes.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

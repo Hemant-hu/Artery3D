@@ -147,6 +147,7 @@ def predict_risk(patient_req: schemas.PatientCreate, db: Session = Depends(datab
         },
         "confidence_intervals": inference_result.get("confidence_intervals", {}),
         "shap_values": shap_dict,
+        "survival_analysis": inference_result.get("survival_analysis"),
         "clinical_notes": []
     }
 
@@ -191,7 +192,8 @@ def get_patient_report(patient_id: int, db: Session = Depends(database.get_db), 
                 "RCA": db_patient.rca_risk if db_patient.rca_risk is not None else inference_result["probabilities"]["RCA"]
             },
             "confidence_intervals": inference_result.get("confidence_intervals", {}),
-            "shap_values": inference_result["shap_values"]
+            "shap_values": inference_result["shap_values"],
+            "survival_analysis": inference_result.get("survival_analysis")
         }
     }
 
@@ -264,7 +266,8 @@ def update_patient_report(
                 "RCA": prob_RCA
             },
             "confidence_intervals": inference_result.get("confidence_intervals", {}),
-            "shap_values": inference_result["shap_values"]
+            "shap_values": inference_result["shap_values"],
+            "survival_analysis": inference_result.get("survival_analysis")
         }
     }
 
@@ -314,3 +317,54 @@ def get_patients(db: Session = Depends(database.get_db), current_user: models.Us
         if not p.doctor_name and p.doctor:
             p.doctor_name = p.doctor.full_name
     return patients
+
+@app.post("/simulate-intervention")
+def simulate_intervention(sim_req: schemas.SimulationRequest):
+    """
+    Real-Time Counterfactual Clinical Intervention Simulator.
+    Simulates pharmacological & lifestyle modifications (BP, Statin/LDL, Smoking, Glycemic control)
+    and recalculates dynamic risk reduction deltas across all coronary vessels.
+    """
+    base_data = dict(sim_req.base_clinical_data)
+    simulated_data = dict(base_data)
+    
+    # Apply simulated interventions
+    simulated_data.update(sim_req.interventions)
+    
+    # Run inferences
+    baseline_result = predictor.predict_patient_risk(base_data)
+    simulated_result = predictor.predict_patient_risk(simulated_data)
+    
+    baseline_overall = baseline_result["probabilities"]["Overall_CAD"]
+    simulated_overall = simulated_result["probabilities"]["Overall_CAD"]
+    
+    risk_delta_abs = simulated_overall - baseline_overall
+    risk_delta_rel = (risk_delta_abs / (baseline_overall + 1e-9)) * 100
+    
+    vessel_deltas = {}
+    for v in ["LAD", "LCX", "RCA"]:
+        base_v = baseline_result["probabilities"].get(v, 0.5)
+        sim_v = simulated_result["probabilities"].get(v, 0.5)
+        vessel_deltas[v] = {
+            "baseline": round(base_v, 4),
+            "simulated": round(sim_v, 4),
+            "delta": round(sim_v - base_v, 4)
+        }
+        
+    return {
+        "baseline_cad_risk": round(baseline_overall, 4),
+        "simulated_cad_risk": round(simulated_overall, 4),
+        "absolute_risk_reduction": round(abs(min(0.0, risk_delta_abs)), 4),
+        "relative_risk_reduction_percent": round(abs(min(0.0, risk_delta_rel)), 1),
+        "vessel_deltas": vessel_deltas,
+        "simulated_stenosis_probabilities": {
+            "LAD": simulated_result["probabilities"]["LAD"],
+            "LCX": simulated_result["probabilities"]["LCX"],
+            "RCA": simulated_result["probabilities"]["RCA"]
+        },
+        "simulated_confidence_intervals": simulated_result.get("confidence_intervals", {}),
+        "simulated_shap_values": simulated_result["shap_values"],
+        "baseline_survival_analysis": baseline_result.get("survival_analysis"),
+        "simulated_survival_analysis": simulated_result.get("survival_analysis")
+    }
+

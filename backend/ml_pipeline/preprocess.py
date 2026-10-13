@@ -71,11 +71,18 @@ def engineer_features(X):
         if col in X.columns:
             X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0)
             
+    if 'TG' in X.columns and 'FBS' in X.columns:
+        X['TyG_Index'] = np.log(np.clip(X['TG'] * X['FBS'] / 2.0, 1.0, 1e7))
+
     # 4. Anatomic Ischemia Vectors (Echo + ECG Fusion)
     if 'St Elevation' in X.columns and 'Region RWMA' in X.columns:
         X['Anterior_Ischemia_Vector'] = (X['St Elevation'] * 2.0 + X.get('St Depression', 0) + X.get('Tinversion', 0)) * (X['Region RWMA'] + 1.0)
     if 'Q Wave' in X.columns and 'BP' in X.columns:
         X['Inferior_Ischemia_Vector'] = (X['Q Wave'] * 2.0 + X.get('St Depression', 0)) * (X['BP'] / 100.0)
+    if 'St Depression' in X.columns or 'Tinversion' in X.columns:
+        st_dep = X['St Depression'] if 'St Depression' in X.columns else 0
+        t_inv = X['Tinversion'] if 'Tinversion' in X.columns else 0
+        X['Lateral_Ischemia_Vector'] = (st_dep * 1.5 + t_inv)
     if 'Typical Chest Pain' in X.columns and 'Function Class' in X.columns:
         X['Angina_Severity_Index'] = X['Typical Chest Pain'] * (X['Function Class'] + 1.0)
     if 'EF-TTE' in X.columns:

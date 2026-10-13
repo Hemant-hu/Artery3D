@@ -54,3 +54,8 @@ class ClinicalNoteCreate(BaseModel):
     note: str
     action_plan: Optional[str] = None
     urgency: Optional[str] = "Routine"
+
+class SimulationRequest(BaseModel):
+    base_clinical_data: Dict[str, Any]
+    interventions: Dict[str, Any]
+

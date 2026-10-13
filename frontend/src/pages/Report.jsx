@@ -4,6 +4,8 @@ import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import HeartModel from '../components/HeartModel';
 import ClinicalNotesSection from '../components/ClinicalNotesSection';
 import HospitalPdfReportModal from '../components/HospitalPdfReportModal';
+import TreatmentSimulatorCard from '../components/TreatmentSimulatorCard';
+import SurvivalCurveCard from '../components/SurvivalCurveCard';
 
 const DEFAULT_CLINICAL = {
   "Age": 53, "Weight": 90, "Length": 175, "Sex": "Male", "BMI": 29.38,
@@ -27,6 +29,8 @@ function Report() {
   const [loading, setLoading] = useState(!location.state);
   const [error, setError] = useState('');
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [simulatedPrediction, setSimulatedPrediction] = useState(null);
+  const [simulatedSurvivalAnalysis, setSimulatedSurvivalAnalysis] = useState(null);
 
   // Edit State
   const [isEditing, setIsEditing] = useState(false);
@@ -40,14 +44,37 @@ function Report() {
   });
 
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login', {
+        replace: true,
+        state: {
+          from: location.pathname,
+          message: 'Clinician authentication required to view patient clinical reports.'
+        }
+      });
+      return;
+    }
+
     // If id is present, fetch authoritative DB record to guarantee 100% CAD risk synchronization with Dashboard
     const fetchReport = async () => {
       try {
-        const token = localStorage.getItem('token');
         const res = await fetch(`http://127.0.0.1:8000/patients/${id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('token');
+          navigate('/login', {
+            replace: true,
+            state: {
+              from: location.pathname,
+              message: 'Your session has expired. Please sign in again to access patient records.'
+            }
+          });
+          return;
+        }
+
         if (!res.ok) {
           throw new Error('Failed to fetch patient report');
         }
@@ -57,7 +84,7 @@ function Report() {
         setLoading(false);
       } catch (err) {
         console.error(err);
-        if (!data) setError('Could not load report.');
+        if (!data) setError('Could not load patient report from clinical registry.');
         setLoading(false);
       }
     };
@@ -67,7 +94,7 @@ function Report() {
     } else if (data && data.prediction) {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, navigate, location.pathname]);
 
   const handleOpenEdit = () => {
     const existingClinical = (data && data.clinical_data) ? data.clinical_data : DEFAULT_CLINICAL;
@@ -310,21 +337,19 @@ function Report() {
     return (
       <div className="home-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <Navbar />
-        <div style={{ padding: '60px 5%', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
-          <h2 style={{ marginBottom: '16px' }}>{error || 'No report data available.'}</h2>
-          <p style={{ color: 'var(--text-muted)', marginBottom: '30px' }}>
-            To view patient records, please log in with your clinician account, or load the interactive clinical demonstration report below to explore the 3D heart model and coronary vessel tree.
+        <div style={{ padding: '80px 5%', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+          <h2 style={{ marginBottom: '16px' }}>{error || 'Patient Record Protected'}</h2>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '30px', lineHeight: '1.6' }}>
+            To inspect patient cardiovascular data, stenosis predictions, and 3D coronary anatomy, authorized physician authentication is strictly required.
           </p>
           <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => { setData(SAMPLE_PATIENT); setError(''); }}
-              className="btn-dark"
-              style={{ background: '#00b4d8', borderColor: '#00b4d8' }}
-            >
-              Explore Demo 3D Heart Report
-            </button>
-            <Link to="/login" className="btn-outline">Go to Login</Link>
-            <Link to="/dashboard" className="btn-outline">Dashboard</Link>
+            <Link to="/login" className="btn-dark">
+              Sign In as Doctor
+            </Link>
+            <Link to="/" className="btn-outline">
+              Return to Home
+            </Link>
           </div>
         </div>
       </div>
@@ -444,6 +469,56 @@ function Report() {
           </div>
           
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              id="survival-curve-jump-btn"
+              onClick={() => {
+                const el = document.getElementById('survival-curve-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)',
+                color: 'white',
+                border: 'none',
+                padding: '10px 18px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '14px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
+                transition: 'all 0.2s'
+              }}
+            >
+              <span>⏳</span>
+              <span>10-Yr Survival Prognosis</span>
+            </button>
+            <button
+              id="treatment-simulator-jump-btn"
+              onClick={() => {
+                const el = document.getElementById('treatment-simulator-section');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                color: 'white',
+                border: 'none',
+                padding: '10px 18px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '14px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)',
+                transition: 'all 0.2s'
+              }}
+            >
+              <span>⚡</span>
+              <span>What-If Simulator</span>
+            </button>
             <button
               id="generate-pdf-btn"
               onClick={() => setIsPdfModalOpen(true)}
@@ -676,9 +751,77 @@ function Report() {
 
           {/* Right Column: 3D Visualization */}
           <div style={{ flex: '1.5 1 500px', background: '#0a0f1a', borderRadius: '16px', overflow: 'hidden', position: 'relative', minHeight: '720px', display: 'flex', alignItems: 'stretch', justifyContent: 'stretch', boxShadow: '0 8px 30px rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <HeartModel prediction={{ ...prediction, overall_cad_risk: riskValue }} />
+            {simulatedPrediction && (
+              <div style={{
+                position: 'absolute',
+                top: 16,
+                left: 16,
+                zIndex: 20,
+                background: 'rgba(16, 185, 129, 0.92)',
+                backdropFilter: 'blur(8px)',
+                color: '#ffffff',
+                padding: '8px 14px',
+                borderRadius: '20px',
+                fontSize: '12px',
+                fontWeight: 700,
+                letterSpacing: '0.5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)'
+              }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }}></span>
+                ✨ SIMULATED INTERVENTION VIEW
+                <button
+                  onClick={() => setSimulatedPrediction(null)}
+                  style={{
+                    background: 'rgba(0,0,0,0.25)',
+                    border: 'none',
+                    color: 'white',
+                    borderRadius: '50%',
+                    width: '18px',
+                    height: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    marginLeft: '4px'
+                  }}
+                  title="Revert to baseline heart"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            <HeartModel prediction={simulatedPrediction || { ...prediction, overall_cad_risk: riskValue }} />
           </div>
 
+        </div>
+
+        {/* 10-Year Major Adverse Cardiac Event (MACE) Survival Prognosis */}
+        <div id="survival-curve-section" style={{ marginTop: '36px' }}>
+          <SurvivalCurveCard
+            baselineSurvival={data?.prediction?.survival_analysis || data?.survival_analysis}
+            simulatedSurvival={simulatedSurvivalAnalysis}
+            onJumpToSimulator={() => {
+              const el = document.getElementById('treatment-simulator-section');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+          />
+        </div>
+
+        {/* Interactive "What-If" Counterfactual Treatment Simulator */}
+        <div id="treatment-simulator-section" style={{ marginTop: '36px' }}>
+          <TreatmentSimulatorCard
+            baseClinicalData={data?.clinical_data || DEFAULT_CLINICAL}
+            baselineOverallRisk={riskValue}
+            baselineStenosis={stenosis_probabilities}
+            onSimulateHeart={(sim) => setSimulatedPrediction(sim)}
+            onAppendClinicalPlan={handleAddClinicalNote}
+            onSimulationResult={(res) => setSimulatedSurvivalAnalysis(res?.simulated_survival_analysis || null)}
+            isLiveHeartActive={!!simulatedPrediction}
+          />
         </div>
 
         {/* Physician Clinical Notes & Action Plan */}

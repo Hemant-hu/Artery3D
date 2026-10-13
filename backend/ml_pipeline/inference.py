@@ -3,7 +3,22 @@ import joblib
 import pandas as pd
 import shap
 import warnings
-from preprocess import engineer_features
+try:
+    from preprocess import engineer_features
+except ImportError:
+    from ml_pipeline.preprocess import engineer_features
+
+import sys
+try:
+    from survival_model import CardiovascularSurvivalModel
+except ImportError:
+    try:
+        from ml_pipeline.survival_model import CardiovascularSurvivalModel
+    except ImportError:
+        CardiovascularSurvivalModel = None
+
+if CardiovascularSurvivalModel is not None and '__main__' in sys.modules:
+    setattr(sys.modules['__main__'], 'CardiovascularSurvivalModel', CardiovascularSurvivalModel)
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -26,6 +41,17 @@ class ClinicalPredictor:
             'LCX': joblib.load(os.path.join(models_dir, 'best_model_LCX.joblib')),
             'RCA': joblib.load(os.path.join(models_dir, 'best_model_RCA.joblib'))
         }
+
+        # Load 10-Year MACE Survival Analysis Model if available
+        surv_path = os.path.join(models_dir, 'survival_model.joblib')
+        if os.path.exists(surv_path):
+            try:
+                self.survival_model = joblib.load(surv_path)
+            except Exception as e:
+                print(f"Warning: Failed to load survival model: {e}")
+                self.survival_model = None
+        else:
+            self.survival_model = None
 
         # Automatically extract expected feature names and order for each target model
         self.model_features = {}
@@ -92,8 +118,21 @@ class ClinicalPredictor:
         # Predict probabilities and calculate 95% Confidence Intervals & Uncertainty Quantification
         probabilities = {}
         confidence_intervals = {}
-        for target, model in self.models.items():
+        for target in ['Overall_CAD', 'LAD', 'RCA', 'LCX']:
+            if target not in self.models:
+                continue
+            model = self.models[target]
+            
+            # Inject anatomical chain priors if required by downstream vessel models
+            X_scaled['CAD_Risk_Prior'] = probabilities.get('Overall_CAD', 0.5)
+            X_scaled['LAD_Risk_Prior'] = probabilities.get('LAD', 0.5)
+            X_scaled['RCA_Risk_Prior'] = probabilities.get('RCA', 0.5)
+
             cols = self.model_features.get(target, self.feature_columns)
+            # Ensure all required cols exist
+            for c in cols:
+                if c not in X_scaled.columns:
+                    X_scaled[c] = 0.0
             X_input = X_scaled[cols]
             if hasattr(model, 'predict_proba'):
                 prob = float(model.predict_proba(X_input)[0, 1])
@@ -120,10 +159,23 @@ class ClinicalPredictor:
         except Exception:
             shap_dict = {feat: 0.05 for feat in self.feature_columns[:10]}
         
+        # 10-Year MACE Survival Analysis & Time-to-Event Projection
+        survival_res = None
+        if self.survival_model:
+            try:
+                survival_res = self.survival_model.predict_patient_survival(
+                    patient_data_dict,
+                    lad_stenosis=probabilities.get('LAD'),
+                    cad_risk=probabilities.get('Overall_CAD')
+                )
+            except Exception as e:
+                print(f"Error computing 10-year survival analysis: {e}")
+
         return {
             "probabilities": probabilities,
             "confidence_intervals": confidence_intervals,
-            "shap_values": shap_dict
+            "shap_values": shap_dict,
+            "survival_analysis": survival_res
         }
 
     def _compute_uncertainty_and_ci(self, target, model, X_input, prob):
