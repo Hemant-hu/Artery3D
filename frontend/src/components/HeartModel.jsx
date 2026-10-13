@@ -17,10 +17,13 @@ import {
   Tag,
   Heart,
   Droplets,
-  Gauge
+  Gauge,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import allModels from './heart_models.json';
 import { classifyMesh, PIN_LOCATIONS } from './heartClassification';
+import IntravascularLabModal from './IntravascularLabModal';
 
 // High-tech Clinical Loading HUD
 function Loader() {
@@ -171,47 +174,134 @@ function VascularFlowStream({
   );
 }
 
+// 3D Metallic Coronary Stent (Cobalt-Chromium Drug-Eluting Stent) deployed along lesion
+function CoronaryStentMesh({ curve, vesselName }) {
+  const meshRef = useRef();
+
+  // Create sub-curve along the stenosed segment of the vessel
+  const { stentTubeGeo, wireframeGeo, markerPositions } = useMemo(() => {
+    const points = [];
+    // Sample along the lesion segment (t: 0.44 -> 0.64)
+    for (let i = 0; i <= 16; i++) {
+      const t = 0.44 + (i / 16) * 0.20;
+      points.push(curve.getPoint(t));
+    }
+    const subCurve = new THREE.CatmullRomCurve3(points);
+    // Outer tube geometry along vessel curve
+    const stentTubeGeo = new THREE.TubeGeometry(subCurve, 24, 2.35, 12, false);
+    const wireframeGeo = new THREE.TubeGeometry(subCurve, 32, 2.45, 8, false);
+
+    const markerPositions = [
+      curve.getPoint(0.44), // Proximal radiopaque marker
+      curve.getPoint(0.64)  // Distal radiopaque marker
+    ];
+
+    return { stentTubeGeo, wireframeGeo, markerPositions };
+  }, [curve]);
+
+  useFrame(({ clock }) => {
+    if (meshRef.current && meshRef.current.material) {
+      // Subtle metallic shimmer / glint
+      const t = clock.getElapsedTime();
+      meshRef.current.material.emissiveIntensity = 0.7 + 0.3 * Math.sin(t * 3.0);
+    }
+  });
+
+  return (
+    <group>
+      {/* 1. Semi-translucent inner scaffold */}
+      <mesh geometry={stentTubeGeo}>
+        <meshPhysicalMaterial
+          color="#00e5ff"
+          emissive="#00b4d8"
+          emissiveIntensity={0.6}
+          roughness={0.2}
+          metalness={0.9}
+          transparent={true}
+          opacity={0.7}
+        />
+      </mesh>
+
+      {/* 2. High-precision Cobalt-Chromium Wireframe Struts */}
+      <mesh ref={meshRef} geometry={wireframeGeo}>
+        <meshStandardMaterial
+          color="#f8fafc"
+          emissive="#38bdf8"
+          emissiveIntensity={0.8}
+          wireframe={true}
+          roughness={0.1}
+          metalness={1.0}
+        />
+      </mesh>
+
+      {/* 3. Gold / Platinum Radiopaque Marker Bands at stent edges */}
+      {markerPositions.map((pos, idx) => (
+        <mesh key={idx} position={pos}>
+          <sphereGeometry args={[1.2, 10, 10]} />
+          <meshStandardMaterial
+            color="#fbbf24"
+            emissive="#f59e0b"
+            emissiveIntensity={1.4}
+            metalness={0.95}
+            roughness={0.1}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 // Complete Hemodynamic Flow Streams for LAD, LCX, RCA, and Venous Return
 function HemodynamicFlowStreams({
   bpm = 75,
   ladRisk = 0,
   lcxRisk = 0,
   rcaRisk = 0,
-  overallRisk = 0
+  overallRisk = 0,
+  stentedVessels = []
 }) {
+  const isLADStented = stentedVessels.includes('LAD');
+  const isLCXStented = stentedVessels.includes('LCX');
+  const isRCAStented = stentedVessels.includes('RCA');
+
   return (
     <group>
-      {/* 1. LAD: Oxygenated scarlet flow down anterior sulcus */}
+      {/* Render 3D Stents if deployed */}
+      {isLADStented && <CoronaryStentMesh curve={VESSEL_CURVES.LAD} vesselName="LAD" />}
+      {isLCXStented && <CoronaryStentMesh curve={VESSEL_CURVES.LCX} vesselName="LCX" />}
+      {isRCAStented && <CoronaryStentMesh curve={VESSEL_CURVES.RCA} vesselName="RCA" />}
+
+      {/* 1. LAD: Restored TIMI-3 flow if stented, else risk-dependent scarlet */}
       <VascularFlowStream
         curve={VESSEL_CURVES.LAD}
-        count={16}
-        color="#ff1744"
-        emissive="#ff0033"
+        count={isLADStented ? 22 : 16}
+        color={isLADStented ? "#00f0ff" : "#ff1744"}
+        emissive={isLADStented ? "#00c8e0" : "#ff0033"}
         bpm={bpm}
-        speed={0.42}
-        isStenosed={ladRisk > 0.5}
+        speed={isLADStented ? 0.52 : 0.42}
+        isStenosed={!isLADStented && ladRisk > 0.5}
       />
 
       {/* 2. LCX: Oxygenated arterial flow around left coronary sulcus */}
       <VascularFlowStream
         curve={VESSEL_CURVES.LCX}
-        count={14}
-        color="#ff2a55"
-        emissive="#ff0044"
+        count={isLCXStented ? 20 : 14}
+        color={isLCXStented ? "#00f0ff" : "#ff2a55"}
+        emissive={isLCXStented ? "#00c8e0" : "#ff0044"}
         bpm={bpm}
-        speed={0.38}
-        isStenosed={lcxRisk > 0.5}
+        speed={isLCXStented ? 0.48 : 0.38}
+        isStenosed={!isLCXStented && lcxRisk > 0.5}
       />
 
       {/* 3. RCA: Oxygenated arterial flow down right coronary sulcus */}
       <VascularFlowStream
         curve={VESSEL_CURVES.RCA}
-        count={16}
-        color="#ff1e38"
-        emissive="#ff0022"
+        count={isRCAStented ? 22 : 16}
+        color={isRCAStented ? "#00f0ff" : "#ff1e38"}
+        emissive={isRCAStented ? "#00c8e0" : "#ff0022"}
         bpm={bpm}
-        speed={0.40}
-        isStenosed={rcaRisk > 0.5}
+        speed={isRCAStented ? 0.50 : 0.40}
+        isStenosed={!isRCAStented && rcaRisk > 0.5}
       />
 
       {/* 4. Venous Return: Bioluminescent cyan-azure flow up Great Cardiac Vein to Coronary Sinus */}
@@ -546,6 +636,25 @@ export default function HeartModel({ prediction }) {
   const [bpm, setBpm] = useState(75);
   const [pumpingIntensity, setPumpingIntensity] = useState(1.0);
 
+  // Virtual PCI & Intravascular Stenting Lab States
+  const [isLabOpen, setIsLabOpen] = useState(false);
+  const [stentedVessels, setStentedVessels] = useState([]);
+  const [labTargetVessel, setLabTargetVessel] = useState('LAD');
+  const [isInspectorMinimized, setIsInspectorMinimized] = useState(false);
+
+  const handleToggleStent = (vessel) => {
+    setStentedVessels(prev =>
+      prev.includes(vessel)
+        ? prev.filter(v => v !== vessel)
+        : [...prev, vessel]
+    );
+  };
+
+  const handleOpenLab = (vessel = 'LAD') => {
+    setLabTargetVessel(vessel);
+    setIsLabOpen(true);
+  };
+
   const controlsRef = useRef();
 
   // Sync slider when viewMode button is pressed
@@ -622,23 +731,26 @@ export default function HeartModel({ prediction }) {
       let isPulsing = false;
 
       if (isLAD) {
-        const isHigh = ladRisk > 0.5;
-        color = isHigh ? colors.arteryStenosis : colors.arteryHealthy;
-        emissive = isHigh ? '#ff0000' : '#4a0000';
-        emissiveIntensity = isHigh ? 1.0 : 0.25;
-        isPulsing = isHigh;
+        const isStented = stentedVessels.includes('LAD');
+        const isHigh = !isStented && ladRisk > 0.5;
+        color = isStented ? '#00e5ff' : (isHigh ? colors.arteryStenosis : colors.arteryHealthy);
+        emissive = isStented ? '#00b4d8' : (isHigh ? '#ff0000' : '#4a0000');
+        emissiveIntensity = isStented ? 1.4 : (isHigh ? 1.0 : 0.25);
+        isPulsing = isHigh || isStented;
       } else if (isLCX) {
-        const isHigh = lcxRisk > 0.5;
-        color = isHigh ? colors.arteryStenosis : colors.arteryHealthy;
-        emissive = isHigh ? '#ff0000' : '#4a0000';
-        emissiveIntensity = isHigh ? 1.0 : 0.25;
-        isPulsing = isHigh;
+        const isStented = stentedVessels.includes('LCX');
+        const isHigh = !isStented && lcxRisk > 0.5;
+        color = isStented ? '#00e5ff' : (isHigh ? colors.arteryStenosis : colors.arteryHealthy);
+        emissive = isStented ? '#00b4d8' : (isHigh ? '#ff0000' : '#4a0000');
+        emissiveIntensity = isStented ? 1.4 : (isHigh ? 1.0 : 0.25);
+        isPulsing = isHigh || isStented;
       } else if (isRCA) {
-        const isHigh = rcaRisk > 0.5;
-        color = isHigh ? colors.arteryStenosis : colors.arteryHealthy;
-        emissive = isHigh ? '#ff0000' : '#4a0000';
-        emissiveIntensity = isHigh ? 1.0 : 0.25;
-        isPulsing = isHigh;
+        const isStented = stentedVessels.includes('RCA');
+        const isHigh = !isStented && rcaRisk > 0.5;
+        color = isStented ? '#00e5ff' : (isHigh ? colors.arteryStenosis : colors.arteryHealthy);
+        emissive = isStented ? '#00b4d8' : (isHigh ? '#ff0000' : '#4a0000');
+        emissiveIntensity = isStented ? 1.4 : (isHigh ? 1.0 : 0.25);
+        isPulsing = isHigh || isStented;
       } else if (isLMCA) {
         const isHigh = overallRisk > 0.5;
         color = isHigh ? '#ff7b00' : colors.arteryHealthy;
@@ -703,36 +815,55 @@ export default function HeartModel({ prediction }) {
         />
       );
     });
-  }, [classifiedMeshes, selectedVessel, muscleOpacity, ladRisk, lcxRisk, rcaRisk, overallRisk, colors, hoveredMeta, bpm, isBeating, basePath]);
+  }, [classifiedMeshes, selectedVessel, muscleOpacity, ladRisk, lcxRisk, rcaRisk, overallRisk, colors, hoveredMeta, bpm, isBeating, basePath, stentedVessels]);
 
   // Active diagnostic inspection data (hovered or selected vessel or overall summary)
   const activeInspection = useMemo(() => {
-    if (hoveredMeta) return hoveredMeta;
+    if (hoveredMeta) {
+      const isStented = stentedVessels.includes(hoveredMeta.category);
+      return {
+        ...hoveredMeta,
+        isStented,
+        risk: isStented ? 0.045 : hoveredMeta.risk
+      };
+    }
     if (selectedVessel === 'LAD') {
+      const isStented = stentedVessels.includes('LAD');
       return {
         category: 'LAD',
         displayName: 'Left Anterior Descending Artery (LAD)',
         territory: 'Anterior left ventricular wall, anterior interventricular septum, apex',
-        clinicalNote: 'Critical "widowmaker" vessel supplying >50% of myocardial muscle mass. Occlusion produces anterior STEMI.',
-        risk: ladRisk
+        clinicalNote: isStented
+          ? 'Revascularized via Drug-Eluting Stent (DES). Full TIMI-3 perfusion restored to anterior myocardium.'
+          : 'Critical "widowmaker" vessel supplying >50% of myocardial muscle mass. Occlusion produces anterior STEMI.',
+        risk: isStented ? 0.045 : ladRisk,
+        isStented
       };
     }
     if (selectedVessel === 'LCX') {
+      const isStented = stentedVessels.includes('LCX');
       return {
         category: 'LCX',
         displayName: 'Left Circumflex Artery (LCX)',
         territory: 'Lateral and posterior left ventricle, obtuse marginal branches',
-        clinicalNote: 'Runs in coronary sulcus. Stenosis presents with lateral wall infarction and posterolateral ischemia.',
-        risk: lcxRisk
+        clinicalNote: isStented
+          ? 'Revascularized via Drug-Eluting Stent (DES). Lateral and posterolateral LV perfusion restored.'
+          : 'Runs in coronary sulcus. Stenosis presents with lateral wall infarction and posterolateral ischemia.',
+        risk: isStented ? 0.045 : lcxRisk,
+        isStented
       };
     }
     if (selectedVessel === 'RCA') {
+      const isStented = stentedVessels.includes('RCA');
       return {
         category: 'RCA',
         displayName: 'Right Coronary Artery (RCA)',
         territory: 'Right atrium, right ventricle, inferior LV, SA node (60%), AV node (90%)',
-        clinicalNote: 'Supplies intrinsic conduction pacemakers. Stenosis risks complete heart block and inferior STEMI.',
-        risk: rcaRisk
+        clinicalNote: isStented
+          ? 'Revascularized via Drug-Eluting Stent (DES). Nodal and inferior wall coronary perfusion restored.'
+          : 'Supplies intrinsic conduction pacemakers. Stenosis risks complete heart block and inferior STEMI.',
+        risk: isStented ? 0.045 : rcaRisk,
+        isStented
       };
     }
     if (selectedVessel === 'LMCA') {
@@ -741,7 +872,8 @@ export default function HeartModel({ prediction }) {
         displayName: 'Left Main Coronary Artery (LMCA / Cath Entry)',
         territory: 'Common stem bifurcation dividing into LAD and LCX',
         clinicalNote: 'Cannulation site during coronary angiography (Cath). Stenosis here carries class-1 CABG bypass indication.',
-        risk: overallRisk
+        risk: overallRisk,
+        isStented: false
       };
     }
     if (selectedVessel === 'VEIN') {
@@ -750,7 +882,8 @@ export default function HeartModel({ prediction }) {
         displayName: 'Coronary Venous Drainage Network',
         territory: 'Great Cardiac Vein (anterior groove) & Coronary Sinus (posterior)',
         clinicalNote: 'Drains deoxygenated myocardial blood into the right atrium. Critical landmark for electrophysiology & CRT pacemaker leads.',
-        risk: null
+        risk: null,
+        isStented: false
       };
     }
     // Default: Overall Coronary Tree Summary
@@ -759,9 +892,10 @@ export default function HeartModel({ prediction }) {
       displayName: 'Coronary Arterial & Venous Map',
       territory: 'Comprehensive 119-component cardiac arterial, venous, and conduction anatomy',
       clinicalNote: `Overall CAD Catheterization Stenosis Probability: ${(overallRisk * 100).toFixed(1)}%. Click any vessel pill or 3D pin to inspect clinical territory.`,
-      risk: overallRisk
+      risk: overallRisk,
+      isStented: false
     };
-  }, [hoveredMeta, selectedVessel, ladRisk, lcxRisk, rcaRisk, overallRisk]);
+  }, [hoveredMeta, selectedVessel, ladRisk, lcxRisk, rcaRisk, overallRisk, stentedVessels]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '600px', background: 'radial-gradient(circle at 50% 40%, #111827 0%, #080c14 100%)', overflow: 'hidden' }}>
@@ -809,6 +943,7 @@ export default function HeartModel({ prediction }) {
                   lcxRisk={lcxRisk}
                   rcaRisk={rcaRisk}
                   overallRisk={overallRisk}
+                  stentedVessels={stentedVessels}
                 />
               )}
 
@@ -915,74 +1050,166 @@ export default function HeartModel({ prediction }) {
           </div>
 
           {/* View Mode Tabs (Angiogram vs X-Ray Ghost vs Solid) */}
-          <div style={{
-            background: 'rgba(15, 23, 42, 0.9)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
-            borderRadius: '12px',
-            padding: '4px',
-            backdropFilter: 'blur(12px)',
-            display: 'flex',
-            gap: '4px',
-            pointerEvents: 'auto'
-          }}>
-            <button
-              onClick={() => handleViewModeChange('angiogram')}
-              style={{
-                background: viewMode === 'angiogram' ? 'linear-gradient(135deg, #00b4d8, #0077b6)' : 'transparent',
-                color: viewMode === 'angiogram' ? '#ffffff' : '#94a3b8',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '6px 12px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s'
-              }}
-            >
-              <Zap size={14} /> Angiogram (Vessels Only)
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.9)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: '12px',
+              padding: '4px',
+              backdropFilter: 'blur(12px)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              pointerEvents: 'auto'
+            }}>
+              <button
+                onClick={() => handleViewModeChange('angiogram')}
+                style={{
+                  background: viewMode === 'angiogram' ? 'linear-gradient(135deg, #00b4d8, #0077b6)' : 'transparent',
+                  color: viewMode === 'angiogram' ? '#ffffff' : '#94a3b8',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '6px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <Zap size={14} /> Angiogram
+              </button>
 
-            <button
-              onClick={() => handleViewModeChange('ghost')}
-              style={{
-                background: viewMode === 'ghost' ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)' : 'transparent',
-                color: viewMode === 'ghost' ? '#ffffff' : '#94a3b8',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '6px 12px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s'
-              }}
-            >
-              <Layers size={14} /> X-Ray Ghost (22%)
-            </button>
+              <button
+                onClick={() => handleViewModeChange('ghost')}
+                style={{
+                  background: viewMode === 'ghost' ? 'linear-gradient(135deg, #3b82f6, #1d4ed8)' : 'transparent',
+                  color: viewMode === 'ghost' ? '#ffffff' : '#94a3b8',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '6px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <Layers size={14} /> Ghost (22%)
+              </button>
 
+              <button
+                onClick={() => handleViewModeChange('solid')}
+                style={{
+                  background: viewMode === 'solid' ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : 'transparent',
+                  color: viewMode === 'solid' ? '#ffffff' : '#94a3b8',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '6px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <Eye size={14} /> Solid
+              </button>
+
+              <div style={{ width: '1px', height: '18px', background: 'rgba(255,255,255,0.15)', margin: '0 4px' }}></div>
+
+              {/* Integrated Myocardium Transparency Slider */}
+              <div
+                title="Fine-tune Myocardium Muscle Transparency"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '0 6px'
+                }}
+              >
+                <Sliders size={13} color="#00b4d8" />
+                <span style={{ fontSize: '11px', color: '#cbd5e1', fontWeight: 600, minWidth: '26px' }}>
+                  {(muscleOpacity * 100).toFixed(0)}%
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.02"
+                  value={muscleOpacity}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    setMuscleOpacity(val);
+                    if (val < 0.05) setViewMode('angiogram');
+                    else if (val > 0.8) setViewMode('solid');
+                    else setViewMode('ghost');
+                  }}
+                  style={{
+                    width: '64px',
+                    height: '4px',
+                    accentColor: '#00b4d8',
+                    cursor: 'pointer'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Launch Intravascular Ultrasound (IVUS) & Virtual PCI Stent Simulator */}
             <button
-              onClick={() => handleViewModeChange('solid')}
+              onClick={() => handleOpenLab(selectedVessel !== 'ALL' && ['LAD', 'LCX', 'RCA'].includes(selectedVessel) ? selectedVessel : 'LAD')}
               style={{
-                background: viewMode === 'solid' ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : 'transparent',
-                color: viewMode === 'solid' ? '#ffffff' : '#94a3b8',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '6px 12px',
-                fontSize: '11px',
-                fontWeight: 600,
+                background: stentedVessels.length > 0
+                  ? 'linear-gradient(135deg, #06b6d4, #0284c7)'
+                  : 'linear-gradient(135deg, #0284c7, #1e40af)',
+                border: '1px solid rgba(56, 189, 248, 0.55)',
+                borderRadius: '12px',
+                padding: '7px 14px',
+                color: '#ffffff',
+                fontSize: '12px',
+                fontWeight: 700,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s'
+                gap: '8px',
+                boxShadow: stentedVessels.length > 0
+                  ? '0 0 18px rgba(6, 182, 212, 0.55)'
+                  : '0 4px 16px rgba(14, 165, 233, 0.35)',
+                backdropFilter: 'blur(12px)',
+                pointerEvents: 'auto',
+                transition: 'all 0.25s'
               }}
             >
-              <Eye size={14} /> Solid Anatomy
+              <Activity size={15} color="#e0f2fe" />
+              <span>🔬 Plaque & Stent Lab</span>
+              {stentedVessels.length > 0 ? (
+                <span style={{
+                  background: '#22c55e',
+                  color: '#064e3b',
+                  padding: '1px 7px',
+                  borderRadius: '999px',
+                  fontSize: '10px',
+                  fontWeight: 800
+                }}>
+                  {stentedVessels.length} Stented
+                </span>
+              ) : (
+                <span style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  color: '#ffffff',
+                  padding: '1px 6px',
+                  borderRadius: '999px',
+                  fontSize: '10px'
+                }}>
+                  IVUS / PCI
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -1003,9 +1230,11 @@ export default function HeartModel({ prediction }) {
             }}
             style={{
               background: selectedVessel === 'LAD'
-                ? (ladRisk > 0.5 ? '#dc2626' : '#2563eb')
+                ? (stentedVessels.includes('LAD') ? '#0284c7' : ladRisk > 0.5 ? '#dc2626' : '#2563eb')
+                : stentedVessels.includes('LAD')
+                ? 'rgba(6, 182, 212, 0.25)'
                 : 'rgba(15, 23, 42, 0.85)',
-              border: `1px solid ${ladRisk > 0.5 ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
+              border: `1px solid ${stentedVessels.includes('LAD') ? '#00e5ff' : ladRisk > 0.5 ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
               borderRadius: '999px',
               padding: '5px 12px',
               color: '#f8fafc',
@@ -1016,7 +1245,9 @@ export default function HeartModel({ prediction }) {
               alignItems: 'center',
               gap: '6px',
               backdropFilter: 'blur(10px)',
-              boxShadow: ladRisk > 0.5 ? '0 0 10px rgba(239, 68, 68, 0.4)' : 'none',
+              boxShadow: stentedVessels.includes('LAD')
+                ? '0 0 10px rgba(0, 229, 255, 0.4)'
+                : ladRisk > 0.5 ? '0 0 10px rgba(239, 68, 68, 0.4)' : 'none',
               transition: 'all 0.2s'
             }}
           >
@@ -1024,9 +1255,9 @@ export default function HeartModel({ prediction }) {
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              background: ladRisk > 0.5 ? '#ff1744' : '#10b981'
+              background: stentedVessels.includes('LAD') ? '#00e5ff' : ladRisk > 0.5 ? '#ff1744' : '#10b981'
             }}></span>
-            LAD: {(ladRisk * 100).toFixed(0)}%
+            LAD: {stentedVessels.includes('LAD') ? 'Stented (100%)' : `${(ladRisk * 100).toFixed(0)}%`}
           </button>
 
           {/* LCX Button */}
@@ -1037,9 +1268,11 @@ export default function HeartModel({ prediction }) {
             }}
             style={{
               background: selectedVessel === 'LCX'
-                ? (lcxRisk > 0.5 ? '#dc2626' : '#2563eb')
+                ? (stentedVessels.includes('LCX') ? '#0284c7' : lcxRisk > 0.5 ? '#dc2626' : '#2563eb')
+                : stentedVessels.includes('LCX')
+                ? 'rgba(6, 182, 212, 0.25)'
                 : 'rgba(15, 23, 42, 0.85)',
-              border: `1px solid ${lcxRisk > 0.5 ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
+              border: `1px solid ${stentedVessels.includes('LCX') ? '#00e5ff' : lcxRisk > 0.5 ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
               borderRadius: '999px',
               padding: '5px 12px',
               color: '#f8fafc',
@@ -1050,7 +1283,9 @@ export default function HeartModel({ prediction }) {
               alignItems: 'center',
               gap: '6px',
               backdropFilter: 'blur(10px)',
-              boxShadow: lcxRisk > 0.5 ? '0 0 10px rgba(239, 68, 68, 0.4)' : 'none',
+              boxShadow: stentedVessels.includes('LCX')
+                ? '0 0 10px rgba(0, 229, 255, 0.4)'
+                : lcxRisk > 0.5 ? '0 0 10px rgba(239, 68, 68, 0.4)' : 'none',
               transition: 'all 0.2s'
             }}
           >
@@ -1058,9 +1293,9 @@ export default function HeartModel({ prediction }) {
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              background: lcxRisk > 0.5 ? '#ff1744' : '#10b981'
+              background: stentedVessels.includes('LCX') ? '#00e5ff' : lcxRisk > 0.5 ? '#ff1744' : '#10b981'
             }}></span>
-            LCX: {(lcxRisk * 100).toFixed(0)}%
+            LCX: {stentedVessels.includes('LCX') ? 'Stented (100%)' : `${(lcxRisk * 100).toFixed(0)}%`}
           </button>
 
           {/* RCA Button */}
@@ -1071,9 +1306,11 @@ export default function HeartModel({ prediction }) {
             }}
             style={{
               background: selectedVessel === 'RCA'
-                ? (rcaRisk > 0.5 ? '#dc2626' : '#2563eb')
+                ? (stentedVessels.includes('RCA') ? '#0284c7' : rcaRisk > 0.5 ? '#dc2626' : '#2563eb')
+                : stentedVessels.includes('RCA')
+                ? 'rgba(6, 182, 212, 0.25)'
                 : 'rgba(15, 23, 42, 0.85)',
-              border: `1px solid ${rcaRisk > 0.5 ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
+              border: `1px solid ${stentedVessels.includes('RCA') ? '#00e5ff' : rcaRisk > 0.5 ? '#ef4444' : 'rgba(255,255,255,0.15)'}`,
               borderRadius: '999px',
               padding: '5px 12px',
               color: '#f8fafc',
@@ -1084,7 +1321,9 @@ export default function HeartModel({ prediction }) {
               alignItems: 'center',
               gap: '6px',
               backdropFilter: 'blur(10px)',
-              boxShadow: rcaRisk > 0.5 ? '0 0 10px rgba(239, 68, 68, 0.4)' : 'none',
+              boxShadow: stentedVessels.includes('RCA')
+                ? '0 0 10px rgba(0, 229, 255, 0.4)'
+                : rcaRisk > 0.5 ? '0 0 10px rgba(239, 68, 68, 0.4)' : 'none',
               transition: 'all 0.2s'
             }}
           >
@@ -1092,9 +1331,9 @@ export default function HeartModel({ prediction }) {
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              background: rcaRisk > 0.5 ? '#ff1744' : '#10b981'
+              background: stentedVessels.includes('RCA') ? '#00e5ff' : rcaRisk > 0.5 ? '#ff1744' : '#10b981'
             }}></span>
-            RCA: {(rcaRisk * 100).toFixed(0)}%
+            RCA: {stentedVessels.includes('RCA') ? 'Stented (100%)' : `${(rcaRisk * 100).toFixed(0)}%`}
           </button>
 
           {/* Cath / LMCA Button */}
@@ -1331,276 +1570,347 @@ export default function HeartModel({ prediction }) {
         </div>
       </div>
 
-      {/* BOTTOM LEFT: Clinical Diagnostic Inspector Card */}
-      <div style={{
-        position: 'absolute',
-        bottom: '16px',
-        left: '16px',
-        maxWidth: '380px',
-        background: 'rgba(15, 23, 42, 0.88)',
-        border: '1px solid rgba(255, 255, 255, 0.12)',
-        borderRadius: '16px',
-        padding: '16px 20px',
-        color: '#f8fafc',
-        backdropFilter: 'blur(16px)',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-        zIndex: 10,
-        pointerEvents: 'auto'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Info size={16} color="#00b4d8" />
-            <strong style={{ fontSize: '13px', color: '#f1f5f9' }}>
-              {activeInspection.displayName}
-            </strong>
-          </div>
+      {/* BOTTOM LEFT: Clinical Diagnostic Inspector Card (Collapsible & Responsive) */}
+      {isInspectorMinimized ? (
+        <div
+          onClick={() => setIsInspectorMinimized(false)}
+          style={{
+            position: 'absolute',
+            bottom: '14px',
+            left: '14px',
+            maxWidth: 'calc(100% - 64px)',
+            background: 'rgba(15, 23, 42, 0.92)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '12px',
+            padding: '8px 14px',
+            color: '#f8fafc',
+            backdropFilter: 'blur(16px)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+            zIndex: 10,
+            pointerEvents: 'auto',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.2s'
+          }}
+          title="Click to expand diagnostic plaque details"
+        >
+          <Info size={14} color="#00b4d8" />
+          <strong style={{ fontSize: '12px', color: '#f1f5f9' }}>
+            {activeInspection.displayName.split('(')[0].trim()}
+          </strong>
           {activeInspection.risk !== null && (
             <span style={{
-              fontSize: '11px',
+              fontSize: '10px',
               fontWeight: 700,
-              padding: '2px 8px',
+              padding: '1px 6px',
               borderRadius: '999px',
-              background: activeInspection.risk > 0.5 ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)',
-              color: activeInspection.risk > 0.5 ? '#f87171' : '#34d399',
-              border: `1px solid ${activeInspection.risk > 0.5 ? '#ef4444' : '#10b981'}`
+              background: activeInspection.isStented
+                ? 'rgba(6, 182, 212, 0.25)'
+                : activeInspection.risk > 0.5 ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)',
+              color: activeInspection.isStented
+                ? '#22d3ee'
+                : activeInspection.risk > 0.5 ? '#f87171' : '#34d399',
+              border: `1px solid ${activeInspection.isStented ? '#06b6d4' : activeInspection.risk > 0.5 ? '#ef4444' : '#10b981'}`
             }}>
-              {activeInspection.risk > 0.5 ? 'STENOSIS RISK' : 'NORMAL'}
+              {(activeInspection.risk * 100).toFixed(0)}%
             </span>
           )}
+          <ChevronUp size={14} color="#38bdf8" />
         </div>
-
-        {activeInspection.risk !== null && (
-          <div style={{ marginBottom: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>
-              <span>Probability of Stenosis (&ge;50% occlusion)</span>
-              <strong style={{ color: activeInspection.risk > 0.5 ? '#ef4444' : '#34d399' }}>
-                {(activeInspection.risk * 100).toFixed(1)}%
+      ) : (
+        <div style={{
+          position: 'absolute',
+          bottom: '14px',
+          left: '14px',
+          maxWidth: 'min(360px, calc(100% - 64px))',
+          background: 'rgba(15, 23, 42, 0.92)',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          borderRadius: '16px',
+          padding: '14px 18px',
+          color: '#f8fafc',
+          backdropFilter: 'blur(16px)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          zIndex: 10,
+          pointerEvents: 'auto'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Info size={15} color="#00b4d8" />
+              <strong style={{ fontSize: '12px', color: '#f1f5f9' }}>
+                {activeInspection.displayName}
               </strong>
             </div>
-            <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '999px', overflow: 'hidden' }}>
-              <div style={{
-                width: `${activeInspection.risk * 100}%`,
-                height: '100%',
-                background: activeInspection.risk > 0.5 ? '#ef4444' : '#10b981',
-                boxShadow: activeInspection.risk > 0.5 ? '0 0 8px #ef4444' : 'none'
-              }}></div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {activeInspection.risk !== null && (
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  padding: '2px 7px',
+                  borderRadius: '999px',
+                  background: activeInspection.isStented
+                    ? 'rgba(6, 182, 212, 0.25)'
+                    : activeInspection.risk > 0.5 ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)',
+                  color: activeInspection.isStented
+                    ? '#22d3ee'
+                    : activeInspection.risk > 0.5 ? '#f87171' : '#34d399',
+                  border: `1px solid ${activeInspection.isStented ? '#06b6d4' : activeInspection.risk > 0.5 ? '#ef4444' : '#10b981'}`
+                }}>
+                  {activeInspection.isStented ? 'STENTED (TIMI-3)' : activeInspection.risk > 0.5 ? 'STENOSIS RISK' : 'NORMAL'}
+                </span>
+              )}
+              <button
+                onClick={() => setIsInspectorMinimized(true)}
+                title="Minimize details"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                <ChevronDown size={14} />
+              </button>
             </div>
           </div>
-        )}
 
-        <div style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.5, marginBottom: '6px' }}>
-          <strong style={{ color: '#cbd5e1' }}>Myocardial Territory: </strong>
-          {activeInspection.territory}
+          {activeInspection.risk !== null && (
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>
+                <span>{activeInspection.isStented ? 'Residual Occlusion (Post-Stent DES)' : 'Probability of Stenosis (≥50% occlusion)'}</span>
+                <strong style={{ color: activeInspection.isStented ? '#22d3ee' : activeInspection.risk > 0.5 ? '#ef4444' : '#34d399' }}>
+                  {(activeInspection.risk * 100).toFixed(1)}%
+                </strong>
+              </div>
+              <div style={{ width: '100%', height: '5px', background: 'rgba(255,255,255,0.08)', borderRadius: '999px', overflow: 'hidden' }}>
+                <div style={{
+                  width: `${activeInspection.risk * 100}%`,
+                  height: '100%',
+                  background: activeInspection.isStented ? '#06b6d4' : activeInspection.risk > 0.5 ? '#ef4444' : '#10b981',
+                  boxShadow: activeInspection.isStented ? '0 0 8px #06b6d4' : activeInspection.risk > 0.5 ? '0 0 8px #ef4444' : 'none'
+                }}></div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.45, marginBottom: '5px' }}>
+            <strong style={{ color: '#cbd5e1' }}>Myocardial Territory: </strong>
+            {activeInspection.territory}
+          </div>
+
+          <div style={{ fontSize: '11px', color: '#cbd5e1', lineHeight: 1.4 }}>
+            <strong style={{ color: '#38bdf8' }}>Clinical Significance: </strong>
+            {activeInspection.clinicalNote}
+          </div>
+
+          {/* Action Button for Intravascular Lab & Virtual PCI Simulator */}
+          {['LAD', 'LCX', 'RCA'].includes(activeInspection.category) && (
+            <button
+              onClick={() => handleOpenLab(activeInspection.category)}
+              style={{
+                marginTop: '10px',
+                width: '100%',
+                background: activeInspection.isStented
+                  ? 'linear-gradient(135deg, #0284c7, #0369a1)'
+                  : 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+                border: '1px solid rgba(56, 189, 248, 0.5)',
+                borderRadius: '8px',
+                padding: '7px 12px',
+                color: '#ffffff',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                boxShadow: '0 4px 14px rgba(14, 165, 233, 0.35)',
+                transition: 'all 0.2s'
+              }}
+            >
+              <Zap size={13} />
+              {activeInspection.isStented
+                ? `🔬 Inspect Stented ${activeInspection.category} in Lab`
+                : `🔬 Inspect ${activeInspection.category} Plaque & Simulate Stent`}
+            </button>
+          )}
         </div>
+      )}
 
-        <div style={{ fontSize: '11px', color: '#cbd5e1', lineHeight: 1.45 }}>
-          <strong style={{ color: '#38bdf8' }}>Clinical Significance: </strong>
-          {activeInspection.clinicalNote}
-        </div>
-      </div>
-
-      {/* BOTTOM RIGHT: Viewport Controls & Myocardium Opacity Slider */}
+      {/* RIGHT FLOATING TOOLBAR: Camera Presets & Utilities (Non-overlapping 38px width) */}
       <div style={{
         position: 'absolute',
-        bottom: '16px',
-        right: '16px',
+        bottom: '14px',
+        right: '14px',
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'flex-end',
-        gap: '10px',
+        alignItems: 'center',
+        gap: '4px',
+        background: 'rgba(15, 23, 42, 0.92)',
+        border: '1px solid rgba(255, 255, 255, 0.12)',
+        borderRadius: '12px',
+        padding: '6px 4px',
+        backdropFilter: 'blur(14px)',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         zIndex: 10,
         pointerEvents: 'auto'
       }}>
-        {/* Opacity Slider Control */}
-        <div style={{
-          background: 'rgba(15, 23, 42, 0.88)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '12px',
-          padding: '10px 14px',
-          backdropFilter: 'blur(14px)',
-          color: '#f8fafc',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-          minWidth: '220px'
-        }}>
-          <Sliders size={16} color="#00b4d8" />
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#cbd5e1', marginBottom: '4px' }}>
-              <span>Muscle Transparency</span>
-              <strong>{(muscleOpacity * 100).toFixed(0)}%</strong>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.02"
-              value={muscleOpacity}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                setMuscleOpacity(val);
-                if (val < 0.05) setViewMode('angiogram');
-                else if (val > 0.8) setViewMode('solid');
-                else setViewMode('ghost');
-              }}
-              style={{
-                width: '100%',
-                height: '4px',
-                accentColor: '#00b4d8',
-                cursor: 'pointer'
-              }}
-            />
-          </div>
+        {/* Reset Camera to Center */}
+        <button
+          title="Reset to Center View"
+          onClick={() => {
+            setViewAngle('default');
+            if (controlsRef.current) {
+              controlsRef.current.target.set(0, 0, 0);
+              controlsRef.current.object.position.set(50, 20, 180);
+              controlsRef.current.update();
+            }
+          }}
+          style={{
+            background: 'transparent',
+            color: '#94a3b8',
+            border: 'none',
+            padding: '5px',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <RotateCw size={14} />
+        </button>
+
+        {/* 360 Degree View Badge */}
+        <div
+          title="360° Free Orbit View - Fixed in Center"
+          style={{
+            padding: '4px',
+            background: 'rgba(0, 180, 216, 0.15)',
+            border: '1px solid rgba(0, 180, 216, 0.3)',
+            borderRadius: '6px',
+            color: '#38bdf8',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            userSelect: 'none'
+          }}
+        >
+          <Compass size={13} color="#00e5ff" />
         </div>
 
-        {/* Camera Presets & Utilities */}
-        <div style={{
-          background: 'rgba(15, 23, 42, 0.88)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '12px',
-          padding: '6px 10px',
-          backdropFilter: 'blur(14px)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px'
-        }}>
-          {/* Quick Perspective Switchers */}
-          <button
-            title="Anterior View (LAD & Great Vein)"
-            onClick={() => setViewAngle('anterior')}
-            style={{
-              background: viewAngle === 'anterior' ? 'rgba(0, 180, 216, 0.3)' : 'transparent',
-              color: '#f8fafc',
-              border: 'none',
-              padding: '6px 8px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              fontWeight: 600
-            }}
-          >
-            Front (LAD)
-          </button>
+        {/* Toggle 3D Pins */}
+        <button
+          title="Toggle 3D Vessel Tags"
+          onClick={() => setShowPins(!showPins)}
+          style={{
+            background: showPins ? 'rgba(0, 180, 216, 0.3)' : 'transparent',
+            color: showPins ? '#00b4d8' : '#94a3b8',
+            border: 'none',
+            padding: '5px',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <Tag size={14} />
+        </button>
 
-          <button
-            title="Posterior View (Coronary Sinus & Veins)"
-            onClick={() => setViewAngle('posterior')}
-            style={{
-              background: viewAngle === 'posterior' ? 'rgba(0, 180, 216, 0.3)' : 'transparent',
-              color: '#f8fafc',
-              border: 'none',
-              padding: '6px 8px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              fontWeight: 600
-            }}
-          >
-            Back (Veins)
-          </button>
+        <div style={{ width: '16px', height: '1px', background: 'rgba(255,255,255,0.15)', margin: '2px 0' }}></div>
 
-          <button
-            title="Right Sulcus View (RCA)"
-            onClick={() => setViewAngle('right')}
-            style={{
-              background: viewAngle === 'right' ? 'rgba(0, 180, 216, 0.3)' : 'transparent',
-              color: '#f8fafc',
-              border: 'none',
-              padding: '6px 8px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              fontWeight: 600
-            }}
-          >
-            RCA
-          </button>
+        {/* Quick View Switchers */}
+        <button
+          title="Front View (LAD)"
+          onClick={() => setViewAngle('anterior')}
+          style={{
+            background: viewAngle === 'anterior' ? 'rgba(0, 180, 216, 0.35)' : 'transparent',
+            color: viewAngle === 'anterior' ? '#38bdf8' : '#cbd5e1',
+            border: viewAngle === 'anterior' ? '1px solid rgba(0, 180, 216, 0.5)' : '1px solid transparent',
+            padding: '4px 2px',
+            borderRadius: '6px',
+            fontSize: '9px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            width: '28px',
+            textAlign: 'center'
+          }}
+        >
+          LAD
+        </button>
 
-          <button
-            title="Left Sulcus View (LCX)"
-            onClick={() => setViewAngle('left')}
-            style={{
-              background: viewAngle === 'left' ? 'rgba(0, 180, 216, 0.3)' : 'transparent',
-              color: '#f8fafc',
-              border: 'none',
-              padding: '6px 8px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              fontWeight: 600
-            }}
-          >
-            LCX
-          </button>
+        <button
+          title="Back View (Veins & Sinus)"
+          onClick={() => setViewAngle('posterior')}
+          style={{
+            background: viewAngle === 'posterior' ? 'rgba(0, 180, 216, 0.35)' : 'transparent',
+            color: viewAngle === 'posterior' ? '#38bdf8' : '#cbd5e1',
+            border: viewAngle === 'posterior' ? '1px solid rgba(0, 180, 216, 0.5)' : '1px solid transparent',
+            padding: '4px 2px',
+            borderRadius: '6px',
+            fontSize: '9px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            width: '28px',
+            textAlign: 'center'
+          }}
+        >
+          POST
+        </button>
 
-          <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)', margin: '0 2px' }}></div>
+        <button
+          title="Right Sulcus View (RCA)"
+          onClick={() => setViewAngle('right')}
+          style={{
+            background: viewAngle === 'right' ? 'rgba(0, 180, 216, 0.35)' : 'transparent',
+            color: viewAngle === 'right' ? '#38bdf8' : '#cbd5e1',
+            border: viewAngle === 'right' ? '1px solid rgba(0, 180, 216, 0.5)' : '1px solid transparent',
+            padding: '4px 2px',
+            borderRadius: '6px',
+            fontSize: '9px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            width: '28px',
+            textAlign: 'center'
+          }}
+        >
+          RCA
+        </button>
 
-          {/* Toggle Labels */}
-          <button
-            title="Toggle 3D Vessel Tags"
-            onClick={() => setShowPins(!showPins)}
-            style={{
-              background: showPins ? 'rgba(0, 180, 216, 0.3)' : 'transparent',
-              color: showPins ? '#00b4d8' : '#94a3b8',
-              border: 'none',
-              padding: '6px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center'
-            }}
-          >
-            <Tag size={15} />
-          </button>
-
-          {/* 360 Degree View Badge */}
-          <div
-            title="360° Free Orbit View - Fixed in Center"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '4px 8px',
-              background: 'rgba(0, 180, 216, 0.15)',
-              border: '1px solid rgba(0, 180, 216, 0.3)',
-              borderRadius: '6px',
-              color: '#38bdf8',
-              fontSize: '11px',
-              fontWeight: 600,
-              userSelect: 'none'
-            }}
-          >
-            <Compass size={14} color="#00e5ff" />
-            <span>360° View</span>
-          </div>
-
-          {/* Reset Camera to Center */}
-          <button
-            title="Reset to Center View"
-            onClick={() => {
-              setViewAngle('default');
-              if (controlsRef.current) {
-                controlsRef.current.target.set(0, 0, 0);
-                controlsRef.current.object.position.set(50, 20, 180);
-                controlsRef.current.update();
-              }
-            }}
-            style={{
-              background: 'transparent',
-              color: '#94a3b8',
-              border: 'none',
-              padding: '6px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center'
-            }}
-          >
-            <RotateCw size={15} />
-          </button>
-        </div>
+        <button
+          title="Left Sulcus View (LCX)"
+          onClick={() => setViewAngle('left')}
+          style={{
+            background: viewAngle === 'left' ? 'rgba(0, 180, 216, 0.35)' : 'transparent',
+            color: viewAngle === 'left' ? '#38bdf8' : '#cbd5e1',
+            border: viewAngle === 'left' ? '1px solid rgba(0, 180, 216, 0.5)' : '1px solid transparent',
+            padding: '4px 2px',
+            borderRadius: '6px',
+            fontSize: '9px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            width: '28px',
+            textAlign: 'center'
+          }}
+        >
+          LCX
+        </button>
       </div>
+
+      {/* Intravascular Ultrasound (IVUS) & Virtual PCI Stent Simulator Modal */}
+      <IntravascularLabModal
+        isOpen={isLabOpen}
+        onClose={() => setIsLabOpen(false)}
+        initialVessel={labTargetVessel}
+        prediction={prediction}
+        stentedVessels={stentedVessels}
+        onToggleStent={handleToggleStent}
+      />
 
     </div>
   );
