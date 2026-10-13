@@ -25,6 +25,7 @@ function Report() {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const token = localStorage.getItem('token');
   
   const [data, setData] = useState(location.state || null);
   const [loading, setLoading] = useState(!location.state);
@@ -339,18 +340,36 @@ function Report() {
       <div className="home-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <Navbar />
         <div style={{ padding: '80px 5%', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>{token ? '⚠️' : '🔒'}</div>
           <h2 style={{ marginBottom: '16px' }}>{error || 'Patient Record Protected'}</h2>
           <p style={{ color: 'var(--text-muted)', marginBottom: '30px', lineHeight: '1.6' }}>
-            To inspect patient cardiovascular data, stenosis predictions, and 3D coronary anatomy, authorized physician authentication is strictly required.
+            {token
+              ? 'The cloud server is currently warming up or synchronizing this patient record. Please click Retry below or return to the Patient Dashboard.'
+              : 'To inspect patient cardiovascular data, stenosis predictions, and 3D coronary anatomy, authorized physician authentication is strictly required.'}
           </p>
           <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link to="/login" className="btn-dark">
-              Sign In as Doctor
-            </Link>
-            <Link to="/" className="btn-outline">
-              Return to Home
-            </Link>
+            {token ? (
+              <>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="btn-dark"
+                >
+                  🔄 Retry Loading Report
+                </button>
+                <Link to="/dashboard" className="btn-outline">
+                  Go to Patient Dashboard
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/login" className="btn-dark">
+                  Sign In as Doctor
+                </Link>
+                <Link to="/" className="btn-outline">
+                  Return to Home
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </div>
