@@ -144,7 +144,7 @@ def train_and_benchmark_target(X_train, X_test, y_train, y_test, target_name, ou
             scoring='roc_auc',
             cv=cv,
             random_state=42,
-            n_jobs=-1
+            n_jobs=1
         )
         search.fit(X_train_fs, y_train_resampled)
         best_est = search.best_estimator_
@@ -177,7 +177,7 @@ def train_and_benchmark_target(X_train, X_test, y_train, y_test, target_name, ou
         ],
         final_estimator=LogisticRegression(random_state=42, C=0.5, max_iter=1000),
         cv=cv,
-        n_jobs=-1
+        n_jobs=1
     )
     stacking_clf.fit(X_train_fs, y_train_resampled)
     metrics_stacking = evaluate_model(stacking_clf, X_test_fs, y_test, "Stacking Ensemble")

@@ -145,6 +145,7 @@ def predict_risk(patient_req: schemas.PatientCreate, db: Session = Depends(datab
             "LCX": prob_LCX,
             "RCA": prob_RCA
         },
+        "confidence_intervals": inference_result.get("confidence_intervals", {}),
         "shap_values": shap_dict,
         "clinical_notes": []
     }
@@ -189,6 +190,7 @@ def get_patient_report(patient_id: int, db: Session = Depends(database.get_db), 
                 "LCX": db_patient.lcx_risk if db_patient.lcx_risk is not None else inference_result["probabilities"]["LCX"],
                 "RCA": db_patient.rca_risk if db_patient.rca_risk is not None else inference_result["probabilities"]["RCA"]
             },
+            "confidence_intervals": inference_result.get("confidence_intervals", {}),
             "shap_values": inference_result["shap_values"]
         }
     }
@@ -261,6 +263,7 @@ def update_patient_report(
                 "LCX": prob_LCX,
                 "RCA": prob_RCA
             },
+            "confidence_intervals": inference_result.get("confidence_intervals", {}),
             "shap_values": inference_result["shap_values"]
         }
     }

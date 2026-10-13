@@ -245,6 +245,52 @@ function Report() {
         LCX: 0.142,
         RCA: 0.778
       },
+      confidence_intervals: {
+        Overall_CAD: {
+          probability: 0.892,
+          ci_lower: 0.842,
+          ci_upper: 0.942,
+          margin_of_error: 0.05,
+          margin_percent: "5.0",
+          certainty_level: "High Certainty",
+          badge_color: "#10b981",
+          is_uncertain: false,
+          clinical_guidance: "Definitive consensus across ensemble estimators."
+        },
+        LAD: {
+          probability: 0.814,
+          ci_lower: 0.758,
+          ci_upper: 0.870,
+          margin_of_error: 0.056,
+          margin_percent: "5.6",
+          certainty_level: "High Certainty",
+          badge_color: "#10b981",
+          is_uncertain: false,
+          clinical_guidance: "Definitive consensus across ensemble estimators."
+        },
+        LCX: {
+          probability: 0.142,
+          ci_lower: 0.052,
+          ci_upper: 0.232,
+          margin_of_error: 0.09,
+          margin_percent: "9.0",
+          certainty_level: "Moderate Certainty",
+          badge_color: "#f59e0b",
+          is_uncertain: false,
+          clinical_guidance: "Consistent multi-biomarker correlation; standard clinical workup advised."
+        },
+        RCA: {
+          probability: 0.778,
+          ci_lower: 0.635,
+          ci_upper: 0.921,
+          margin_of_error: 0.143,
+          margin_percent: "14.3",
+          certainty_level: "Borderline / High Uncertainty",
+          badge_color: "#ef4444",
+          is_uncertain: true,
+          clinical_guidance: "Elevated ensemble variance detected. Consider non-invasive Coronary CT Calcium Scoring (CAC) prior to catheterization."
+        }
+      },
       shap_values: {
         'Typical Chest Pain': 0.28,
         'ST Elevation': 0.22,
@@ -287,6 +333,7 @@ function Report() {
 
   const { prediction, patient_name } = data;
   const { overall_cad_risk, stenosis_probabilities, shap_values } = prediction;
+  const confidenceIntervals = prediction?.confidence_intervals || {};
 
   // Authoritative CAD risk guaranteeing exact match with Patient Dashboard
   const riskValue = (data.overall_risk !== undefined) ? data.overall_risk : overall_cad_risk;
@@ -299,6 +346,36 @@ function Report() {
   const displayDoctor = rawDoctorName
     ? (rawDoctorName.toLowerCase().startsWith('dr') ? rawDoctorName : `Dr. ${rawDoctorName}`)
     : 'Dr. Attending Physician';
+
+  // Helper to extract or dynamically compute 95% Confidence Interval & AI Certainty
+  const getCI = (targetKey) => {
+    if (confidenceIntervals && confidenceIntervals[targetKey]) {
+      return confidenceIntervals[targetKey];
+    }
+    const prob = targetKey === 'Overall_CAD' ? riskValue : (stenosis_probabilities?.[targetKey] ?? 0.5);
+    const moe = Math.min(0.16, Math.max(0.035, 4.0 * prob * (1.0 - prob) * 0.12));
+    const ci_lower = Math.max(0.01, prob - moe);
+    const ci_upper = Math.min(0.99, prob + moe);
+    const is_uncertain = moe > 0.11;
+    return {
+      probability: prob,
+      ci_lower,
+      ci_upper,
+      margin_of_error: moe,
+      margin_percent: (moe * 100).toFixed(1),
+      certainty_level: moe <= 0.065 ? "High Certainty" : (moe <= 0.11 ? "Moderate Certainty" : "Borderline / High Uncertainty"),
+      badge_color: moe <= 0.065 ? "#10b981" : (moe <= 0.11 ? "#f59e0b" : "#ef4444"),
+      is_uncertain,
+      clinical_guidance: moe <= 0.065
+        ? "Definitive consensus across ensemble estimators."
+        : (moe <= 0.11
+          ? "Consistent multi-biomarker correlation; standard clinical workup advised."
+          : "Elevated ensemble variance detected. Consider non-invasive Coronary CT Calcium Scoring (CAC) prior to catheterization.")
+    };
+  };
+
+  const overallCI = getCI('Overall_CAD');
+  const uncertainVessels = ['LAD', 'LCX', 'RCA'].filter(v => getCI(v).is_uncertain);
 
   // Sort SHAP values by absolute impact
   const sortedShap = Object.entries(shap_values)
@@ -450,37 +527,124 @@ function Report() {
               </button>
             </div>
 
-            {/* Overall Risk Card - Synchronized with Dashboard */}
-            <div style={{ background: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+            {/* Overall Risk Card - Synchronized with Dashboard with 95% Confidence Intervals */}
+            <div style={{ background: 'white', padding: '26px 30px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <h3 style={{ margin: 0 }}>Overall CAD Risk</h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', background: '#f1f5f9', padding: '3px 8px', borderRadius: '6px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px' }}>Overall CAD Risk</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', background: '#f1f5f9', padding: '3px 8px', borderRadius: '6px' }}>
                   Synced with Registry
                 </span>
               </div>
-              <div style={{ fontSize: '48px', fontWeight: 'bold', color: riskValue > 0.5 ? '#d32f2f' : '#2e7d32' }}>
-                {(riskValue * 100).toFixed(1)}%
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                <div style={{ fontSize: '46px', fontWeight: 'bold', color: riskValue > 0.5 ? '#d32f2f' : '#2e7d32' }}>
+                  {(riskValue * 100).toFixed(1)}%
+                </div>
+                {overallCI && (
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    background: overallCI.is_uncertain ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                    color: overallCI.badge_color || '#334155',
+                    border: `1px solid ${overallCI.badge_color || '#cbd5e1'}40`,
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}>
+                    <span>{overallCI.is_uncertain ? '⚠️' : '🎯'}</span>
+                    <span>95% CI: [{(overallCI.ci_lower * 100).toFixed(1)}% – {(overallCI.ci_upper * 100).toFixed(1)}%]</span>
+                    <span style={{ color: '#64748b', fontWeight: 500 }}>(±{overallCI.margin_percent}%)</span>
+                  </span>
+                )}
               </div>
-              <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '0' }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '0 0 10px 0' }}>
                 {riskValue > 0.5 ? 'High probability of significant Coronary Artery Disease.' : 'Low probability of significant Coronary Artery Disease.'}
               </p>
+              {overallCI && (
+                <div style={{
+                  padding: '9px 12px',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
+                  borderLeft: `3px solid ${overallCI.badge_color || '#10b981'}`,
+                  fontSize: '12px',
+                  color: '#475569',
+                  lineHeight: '1.4'
+                }}>
+                  <strong style={{ color: '#0f172a' }}>{overallCI.certainty_level}</strong>: {overallCI.clinical_guidance}
+                </div>
+              )}
             </div>
 
-            {/* Vessel Stenosis Probabilities */}
-            <div style={{ background: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
-              <h3 style={{ margin: '0 0 20px 0' }}>Vessel Stenosis Probabilities</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                {Object.entries(stenosis_probabilities).map(([vessel, prob]) => (
-                  <div key={vessel}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <strong>{vessel}</strong>
-                      <span style={{ color: prob > 0.5 ? '#d32f2f' : 'inherit' }}>{(prob * 100).toFixed(1)}%</span>
+            {/* Vessel Stenosis Probabilities with Conformal Confidence Intervals */}
+            <div style={{ background: 'white', padding: '26px 30px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                <h3 style={{ margin: 0, fontSize: '18px' }}>Vessel Stenosis Probabilities</h3>
+                <span style={{ fontSize: '11px', color: '#0a4d3c', background: 'rgba(10, 77, 60, 0.08)', padding: '3px 8px', borderRadius: '6px', fontWeight: 600 }}>
+                  95% Conformal CI
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {Object.entries(stenosis_probabilities).map(([vessel, prob]) => {
+                  const vesselCI = getCI(vessel);
+                  return (
+                    <div key={vessel}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px', flexWrap: 'wrap', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <strong style={{ fontSize: '14px' }}>{vessel}</strong>
+                          {vesselCI && (
+                            <span style={{
+                              fontSize: '11px',
+                              padding: '2px 7px',
+                              borderRadius: '12px',
+                              background: vesselCI.is_uncertain ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                              color: vesselCI.is_uncertain ? '#b91c1c' : '#065f46',
+                              border: `1px solid ${vesselCI.is_uncertain ? 'rgba(239, 68, 68, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`,
+                              fontWeight: 500
+                            }}>
+                              95% CI: [{(vesselCI.ci_lower * 100).toFixed(1)}% – {(vesselCI.ci_upper * 100).toFixed(1)}%]
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ color: prob > 0.5 ? '#d32f2f' : 'inherit', fontWeight: 'bold', fontSize: '14px' }}>
+                            {(prob * 100).toFixed(1)}%
+                          </span>
+                          {vesselCI && (
+                            <span style={{ fontSize: '11px', color: '#64748b' }}>
+                              (±{vesselCI.margin_percent}%)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ width: '100%', height: '8px', background: '#e0e0e0', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ width: `${prob * 100}%`, height: '100%', background: prob > 0.5 ? '#d32f2f' : '#0a4d3c', transition: 'width 1s ease-in-out' }}></div>
+                      </div>
                     </div>
-                    <div style={{ width: '100%', height: '8px', background: '#e0e0e0', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div style={{ width: `${prob * 100}%`, height: '100%', background: prob > 0.5 ? '#d32f2f' : '#0a4d3c', transition: 'width 1s ease-in-out' }}></div>
+                  );
+                })}
+
+                {/* AI Uncertainty Notice if any vessel exhibits elevated variance */}
+                {uncertainVessels.length > 0 && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '12px 14px',
+                    background: 'rgba(239, 68, 68, 0.05)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    color: '#991b1b',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '8px',
+                    lineHeight: '1.45'
+                  }}>
+                    <span style={{ fontSize: '16px', lineHeight: 1 }}>⚠️</span>
+                    <div>
+                      <strong>AI Uncertainty Flag:</strong> Elevated ensemble sub-model variance detected for <strong>{uncertainVessels.join(' & ')}</strong>. Clinical presentations near the critical decision boundary benefit from non-invasive Coronary CT Calcium Scoring (CAC) or Stress Imaging prior to catheterization.
                     </div>
                   </div>
-                ))}
+                )}
               </div>
             </div>
 

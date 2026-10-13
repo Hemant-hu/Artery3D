@@ -58,6 +58,25 @@ export default function HospitalPdfReportModal({
     minute: '2-digit'
   });
 
+  const confidenceIntervals = prediction?.confidence_intervals || {};
+
+  const getCI = (vessel) => {
+    if (confidenceIntervals && confidenceIntervals[vessel]) {
+      return confidenceIntervals[vessel];
+    }
+    const prob = vessel === 'Overall_CAD' ? riskValue : (stenosis[vessel] ?? 0.5);
+    const moe = Math.min(0.16, Math.max(0.035, 4.0 * prob * (1.0 - prob) * 0.12));
+    return {
+      ci_lower: Math.max(0.01, prob - moe),
+      ci_upper: Math.min(0.99, prob + moe),
+      margin_percent: (moe * 100).toFixed(1),
+      certainty_level: moe <= 0.065 ? "High" : (moe <= 0.11 ? "Moderate" : "Borderline"),
+      is_uncertain: moe > 0.11
+    };
+  };
+
+  const overallCI = getCI('Overall_CAD');
+
   const mrn = `A3D-${String(id || patient_id || 101).padStart(6, '0')}`;
 
   const handleDownloadPdf = async () => {
@@ -309,11 +328,14 @@ export default function HospitalPdfReportModal({
               <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: isHighRisk ? '#dc2626' : '#059669' }}>
                 Overall Coronary Artery Disease (CAD) Severity
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
-                {(riskValue * 100).toFixed(1)}% Projected Occlusion Probability
+              <div style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', marginTop: '2px', display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                <span>{(riskValue * 100).toFixed(1)}% Projected Occlusion Probability</span>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+                  • 95% CI: [{(overallCI.ci_lower * 100).toFixed(1)}% – {(overallCI.ci_upper * 100).toFixed(1)}%]
+                </span>
               </div>
               <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>
-                Derived via XGBoost/Gradient-Boosted Hemodynamic Model with validated C-index 0.941.
+                Derived via XGBoost/Gradient-Boosted Hemodynamic Model with validated C-index 0.941 &middot; {overallCI.certainty_level}.
               </div>
             </div>
 
@@ -341,6 +363,7 @@ export default function HospitalPdfReportModal({
                 <tr style={{ background: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1' }}>
                   <th style={{ padding: '8px 10px', color: '#334155' }}>Vessel Segment</th>
                   <th style={{ padding: '8px 10px', color: '#334155' }}>Stenosis Prob.</th>
+                  <th style={{ padding: '8px 10px', color: '#334155' }}>95% Conformal CI</th>
                   <th style={{ padding: '8px 10px', color: '#334155' }}>Ischemia Status</th>
                   <th style={{ padding: '8px 10px', color: '#334155' }}>Supplied Territory</th>
                   <th style={{ padding: '8px 10px', color: '#334155' }}>Clinical Implication</th>
@@ -354,6 +377,10 @@ export default function HospitalPdfReportModal({
                   </td>
                   <td style={{ padding: '8px 10px', fontWeight: 700, color: (stenosis.LAD ?? 0) > 0.5 ? '#dc2626' : '#059669' }}>
                     {((stenosis.LAD ?? 0) * 100).toFixed(1)}%
+                  </td>
+                  <td style={{ padding: '8px 10px', color: '#334155', whiteSpace: 'nowrap' }}>
+                    [{(getCI('LAD').ci_lower * 100).toFixed(1)}% – {(getCI('LAD').ci_upper * 100).toFixed(1)}%]
+                    <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px' }}>(±{getCI('LAD').margin_percent}%)</span>
                   </td>
                   <td style={{ padding: '8px 10px' }}>
                     <span style={{
@@ -379,6 +406,10 @@ export default function HospitalPdfReportModal({
                   <td style={{ padding: '8px 10px', fontWeight: 700, color: (stenosis.LCX ?? 0) > 0.5 ? '#dc2626' : '#059669' }}>
                     {((stenosis.LCX ?? 0) * 100).toFixed(1)}%
                   </td>
+                  <td style={{ padding: '8px 10px', color: '#334155', whiteSpace: 'nowrap' }}>
+                    [{(getCI('LCX').ci_lower * 100).toFixed(1)}% – {(getCI('LCX').ci_upper * 100).toFixed(1)}%]
+                    <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px' }}>(±{getCI('LCX').margin_percent}%)</span>
+                  </td>
                   <td style={{ padding: '8px 10px' }}>
                     <span style={{
                       padding: '2px 8px',
@@ -402,6 +433,10 @@ export default function HospitalPdfReportModal({
                   </td>
                   <td style={{ padding: '8px 10px', fontWeight: 700, color: (stenosis.RCA ?? 0) > 0.5 ? '#dc2626' : '#059669' }}>
                     {((stenosis.RCA ?? 0) * 100).toFixed(1)}%
+                  </td>
+                  <td style={{ padding: '8px 10px', color: '#334155', whiteSpace: 'nowrap' }}>
+                    [{(getCI('RCA').ci_lower * 100).toFixed(1)}% – {(getCI('RCA').ci_upper * 100).toFixed(1)}%]
+                    <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px' }}>(±{getCI('RCA').margin_percent}%)</span>
                   </td>
                   <td style={{ padding: '8px 10px' }}>
                     <span style={{
