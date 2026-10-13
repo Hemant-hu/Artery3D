@@ -7,13 +7,26 @@ import pandas as pd
 import joblib
 import shap
 import json
-from datetime import timedelta
+import time
+from datetime import datetime, timedelta
 
 import models, schemas, auth, database
 from database import engine
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
+
+# Automatic lightweight SQLite schema synchronization
+try:
+    with engine.connect() as conn:
+        cursor = conn.connection.cursor()
+        cursor.execute("PRAGMA table_info(patients)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "clinical_notes" not in columns:
+            cursor.execute("ALTER TABLE patients ADD COLUMN clinical_notes TEXT DEFAULT '[]'")
+            conn.connection.commit()
+except Exception as e:
+    print(f"Schema check error: {e}")
 
 app = FastAPI(title="Artery3D API", description="API for Cardiovascular Risk Visualization & Prediction")
 
@@ -115,7 +128,8 @@ def predict_risk(patient_req: schemas.PatientCreate, db: Session = Depends(datab
         lad_risk=prob_LAD,
         lcx_risk=prob_LCX,
         rca_risk=prob_RCA,
-        raw_data=json.dumps(patient_req.clinical_data)
+        raw_data=json.dumps(patient_req.clinical_data),
+        clinical_notes="[]"
     )
     db.add(db_patient)
     db.commit()
@@ -131,7 +145,8 @@ def predict_risk(patient_req: schemas.PatientCreate, db: Session = Depends(datab
             "LCX": prob_LCX,
             "RCA": prob_RCA
         },
-        "shap_values": shap_dict
+        "shap_values": shap_dict,
+        "clinical_notes": []
     }
 
 @app.get("/patients/{patient_id}", response_model=dict)
@@ -155,6 +170,7 @@ def get_patient_report(patient_id: int, db: Session = Depends(database.get_db), 
         db.refresh(db_patient)
     
     attending_doctor = db_patient.doctor_name or (db_patient.doctor.full_name if db_patient.doctor else "Dr. Medical Specialist")
+    notes_list = json.loads(db_patient.clinical_notes) if db_patient.clinical_notes else []
     
     return {
         "id": db_patient.id,
@@ -165,6 +181,7 @@ def get_patient_report(patient_id: int, db: Session = Depends(database.get_db), 
         "sex": db_patient.sex,
         "overall_risk": db_patient.overall_risk,
         "clinical_data": clinical_data,
+        "clinical_notes": notes_list,
         "prediction": {
             "overall_cad_risk": db_patient.overall_risk,
             "stenosis_probabilities": {
@@ -225,6 +242,8 @@ def update_patient_report(
     db.commit()
     db.refresh(db_patient)
     
+    notes_list = json.loads(db_patient.clinical_notes) if db_patient.clinical_notes else []
+
     return {
         "id": db_patient.id,
         "patient_id": db_patient.id,
@@ -234,6 +253,7 @@ def update_patient_report(
         "sex": db_patient.sex,
         "overall_risk": db_patient.overall_risk,
         "clinical_data": clinical_data,
+        "clinical_notes": notes_list,
         "prediction": {
             "overall_cad_risk": prob_Cath,
             "stenosis_probabilities": {
@@ -243,6 +263,44 @@ def update_patient_report(
             },
             "shap_values": inference_result["shap_values"]
         }
+    }
+
+@app.post("/patients/{patient_id}/notes", response_model=dict)
+def add_clinical_note(
+    patient_id: int,
+    note_req: schemas.ClinicalNoteCreate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    db_patient = db.query(models.PatientRecord).filter(models.PatientRecord.id == patient_id).first()
+    if not db_patient:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+        
+    existing_notes = json.loads(db_patient.clinical_notes) if db_patient.clinical_notes else []
+    
+    doc_name = current_user.full_name if (current_user and current_user.full_name) else "Dr. Attending Cardiologist"
+    
+    new_note = {
+        "id": f"note_{int(time.time() * 1000)}",
+        "doctor_id": current_user.id,
+        "doctor_name": doc_name,
+        "timestamp": datetime.now().strftime("%b %d, %Y • %I:%M %p"),
+        "note": note_req.note.strip(),
+        "action_plan": note_req.action_plan.strip() if note_req.action_plan else None,
+        "urgency": note_req.urgency or "Routine"
+    }
+    
+    # Prepend newest note first
+    existing_notes.insert(0, new_note)
+    db_patient.clinical_notes = json.dumps(existing_notes)
+    db.commit()
+    db.refresh(db_patient)
+    
+    return {
+        "success": True,
+        "patient_id": db_patient.id,
+        "note": new_note,
+        "clinical_notes": existing_notes
     }
 
 @app.get("/patients", response_model=List[schemas.PatientResponse])

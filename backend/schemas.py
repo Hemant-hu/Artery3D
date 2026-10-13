@@ -49,3 +49,8 @@ class PatientResponse(BaseModel):
     rca_risk: float
     class Config:
         from_attributes = True
+
+class ClinicalNoteCreate(BaseModel):
+    note: str
+    action_plan: Optional[str] = None
+    urgency: Optional[str] = "Routine"

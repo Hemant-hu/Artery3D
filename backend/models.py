@@ -32,5 +32,6 @@ class PatientRecord(Base):
     # We can store the full raw input data as a JSON string if needed, 
     # but for simplicity we keep the key metrics here.
     raw_data = Column(String)
+    clinical_notes = Column(String, default="[]")
 
     doctor = relationship("User", back_populates="patients")

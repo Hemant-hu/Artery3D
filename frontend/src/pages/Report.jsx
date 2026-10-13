@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import HeartModel from '../components/HeartModel';
+import ClinicalNotesSection from '../components/ClinicalNotesSection';
+import HospitalPdfReportModal from '../components/HospitalPdfReportModal';
 
 const DEFAULT_CLINICAL = {
   "Age": 53, "Weight": 90, "Length": 175, "Sex": "Male", "BMI": 29.38,
@@ -24,6 +26,7 @@ function Report() {
   const [data, setData] = useState(location.state || null);
   const [loading, setLoading] = useState(!location.state);
   const [error, setError] = useState('');
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
   // Edit State
   const [isEditing, setIsEditing] = useState(false);
@@ -150,6 +153,68 @@ function Report() {
     }
   };
 
+  const handleAddClinicalNote = async (notePayload) => {
+    const targetId = id || (data && (data.id || data.patient_id));
+    const currentNotes = (data && data.clinical_notes) || [];
+    const activeDoctor = (data?.doctor_name && (data.doctor_name.toLowerCase().startsWith('dr') ? data.doctor_name : `Dr. ${data.doctor_name}`)) || 'Dr. Attending Physician';
+
+    if (!targetId) {
+      // Demonstration case fallback
+      const newLocalNote = {
+        id: 'note-' + Date.now(),
+        timestamp: new Date().toISOString(),
+        doctor_name: activeDoctor,
+        note: notePayload.note,
+        action_plan: notePayload.action_plan,
+        urgency: notePayload.urgency
+      };
+      setData(prev => ({
+        ...prev,
+        clinical_notes: [newLocalNote, ...currentNotes]
+      }));
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://127.0.0.1:8000/patients/${targetId}/notes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(notePayload)
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || 'Failed to persist clinical note');
+      }
+
+      const savedNote = await res.json();
+      setData(prev => ({
+        ...prev,
+        clinical_notes: [savedNote, ...currentNotes]
+      }));
+    } catch (err) {
+      console.error(err);
+      // Fallback locally
+      const fallbackNote = {
+        id: 'note-' + Date.now(),
+        timestamp: new Date().toISOString(),
+        doctor_name: activeDoctor,
+        note: notePayload.note,
+        action_plan: notePayload.action_plan,
+        urgency: notePayload.urgency
+      };
+      setData(prev => ({
+        ...prev,
+        clinical_notes: [fallbackNote, ...currentNotes]
+      }));
+      alert('Note saved to local session. Server synchronization notice: ' + err.message);
+    }
+  };
+
   if (loading) {
     return (
       <div className="home-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -163,6 +228,16 @@ function Report() {
     patient_name: 'John Doe (Clinical Demonstration Case)',
     doctor_name: 'Dr. Clinical Specialist',
     overall_risk: 0.892,
+    clinical_notes: [
+      {
+        id: 'sample-note-1',
+        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
+        doctor_name: 'Dr. Clinical Specialist',
+        urgency: 'Urgent (<48h)',
+        note: 'Patient presents with severe exertional angina, significant hemodynamic stenosis in LAD (81.4%) & RCA (77.8%), and acute ST-elevation markers indicating critical ischemia.',
+        action_plan: '1. Recommended for urgent diagnostic coronary angiography and catheterization within 48h.\n2. Initiate Dual Antiplatelet Therapy (Aspirin 81mg + Clopidogrel 75mg daily).\n3. High-intensity Atorvastatin 80mg daily.\n4. Telemetry monitoring and CCU admission.'
+      }
+    ],
     prediction: {
       overall_cad_risk: 0.892,
       stenosis_probabilities: {
@@ -291,7 +366,29 @@ function Report() {
             </p>
           </div>
           
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              id="generate-pdf-btn"
+              onClick={() => setIsPdfModalOpen(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'linear-gradient(135deg, #0a4d3c 0%, #065f46 100%)',
+                color: 'white',
+                border: 'none',
+                padding: '10px 18px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '14px',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(10, 77, 60, 0.25)',
+                transition: 'all 0.2s'
+              }}
+            >
+              <span>📄</span>
+              <span>Generate Hospital PDF</span>
+            </button>
             <button
               className="btn-dark"
               onClick={handleOpenEdit}
@@ -418,6 +515,16 @@ function Report() {
             <HeartModel prediction={{ ...prediction, overall_cad_risk: riskValue }} />
           </div>
 
+        </div>
+
+        {/* Physician Clinical Notes & Action Plan */}
+        <div style={{ marginTop: '36px' }}>
+          <ClinicalNotesSection
+            patientId={id || data?.id || data?.patient_id}
+            notes={data?.clinical_notes || []}
+            onAddNote={handleAddClinicalNote}
+            attendingDoctor={displayDoctor}
+          />
         </div>
       </div>
 
@@ -588,6 +695,14 @@ function Report() {
           </div>
         </div>
       )}
+
+      {/* Official Medical-Grade Hospital PDF Generation Modal */}
+      <HospitalPdfReportModal
+        isOpen={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        patientData={data}
+        displayDoctor={displayDoctor}
+      />
     </div>
   );
 }
