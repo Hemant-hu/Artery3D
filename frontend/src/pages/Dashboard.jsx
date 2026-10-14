@@ -37,7 +37,7 @@ function Dashboard() {
     <div className="home-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Navbar />
       <div style={{ padding: '50px 5%', flex: 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
               <span style={{ fontSize: '13px', background: 'rgba(16, 185, 129, 0.12)', color: '#059669', padding: '3px 10px', borderRadius: '999px', fontWeight: 600, border: '1px solid rgba(16, 185, 129, 0.25)' }}>
@@ -53,6 +53,24 @@ function Dashboard() {
           <Link to="/new-patient" className="btn-dark" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             + Add New Patient Entry
           </Link>
+        </div>
+
+        {/* Clinical Decision Support Safety Disclaimer Banner */}
+        <div style={{
+          background: 'rgba(245, 158, 11, 0.08)',
+          border: '1px solid rgba(245, 158, 11, 0.35)',
+          borderRadius: '12px',
+          padding: '14px 20px',
+          marginBottom: '28px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          boxShadow: '0 2px 8px rgba(245, 158, 11, 0.05)'
+        }}>
+          <span style={{ fontSize: '20px', flexShrink: 0 }}>⚠️</span>
+          <div style={{ fontSize: '13px', color: '#92400e', lineHeight: '1.5', fontWeight: '500' }}>
+            <strong>Clinical Decision Support Notice:</strong> Artery3D predictions are for clinical decision support and educational research only and are not a substitute for formal diagnostic coronary angiography or physician judgment.
+          </div>
         </div>
         
         {loading ? (
