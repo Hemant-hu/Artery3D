@@ -14,7 +14,7 @@
 - **Live Web Application:** [https://artery3d.onrender.com](https://artery3d.onrender.com)
 - **Live Backend API (Swagger UI):** [https://artery3d-backend-brkm.onrender.com/docs](https://artery3d-backend-brkm.onrender.com/docs)
 - **Official Documentation (Word / Markdown):**  [`Artery3D_Project_Documentation_.docx`](Artery3D_Project_Documentation_.docx)
-- **Video Walkthrough Script:** [`DEMO_VIDEO_SCRIPT.md`](DEMO_VIDEO_SCRIPT.md)
+
 
 ---
 
